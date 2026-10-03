@@ -2,312 +2,349 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const Color primaryBlue = Color(0xFF005086);
-const Color bgColor = Color(0xFFF2F8FD);
-const Color textColor = Color(0xFF081725);
-const Color secondaryColor = Color(0xFF596571);
-const Color borderColor = Color(0xFFD6DFE8);
-const Color presentColor = Color(0xFF005086);
-const Color absentColor = Color(0xFFDC2626);
-const Color halfDayColor = Color(0xFFD97706);
-const Color otColor = Color(0xFF16A34A);
-const Color holidayColor = Color(0xFFE5E7EB);
+const primary = Color(0xFF005086);
+const bg = Color(0xFFF2F8FD);
+const border = Color(0xFFD6E0E8);
+const textGrey = Color(0xFF65717C);
+const textDark = Color(0xFF0B1722);
+const red = Color(0xFFDC2626);
+const orange = Color(0xFFD97706);
+const green = Color(0xFF16A34A);
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final storage = LocalStorage();
-  await storage.load();
-  runApp(WorkerPayApp(storage: storage));
-}
+enum DayStatus { none, present, absent, half, holiday }
 
 class Attendance {
-  String status;
+  DayStatus status;
   double hours;
-  double otHours;
-  double otRate;
+  double ot;
 
   Attendance({
-    required this.status,
+    this.status = DayStatus.none,
     this.hours = 0,
-    this.otHours = 0,
-    this.otRate = 0,
+    this.ot = 0,
   });
 
   Map<String, dynamic> toJson() => {
-        'status': status,
+        'status': status.index,
         'hours': hours,
-        'otHours': otHours,
-        'otRate': otRate,
+        'ot': ot,
       };
 
-  factory Attendance.fromJson(Map<String, dynamic> json) {
+  factory Attendance.fromJson(Map<String, dynamic> j) {
+    final s = (j['status'] ?? 0) as int;
     return Attendance(
-      status: json['status'] ?? 'present',
-      hours: (json['hours'] ?? 0).toDouble(),
-      otHours: (json['otHours'] ?? 0).toDouble(),
-      otRate: (json['otRate'] ?? 0).toDouble(),
+      status: DayStatus.values[s.clamp(0, 4)],
+      hours: (j['hours'] ?? 0).toDouble(),
+      ot: (j['ot'] ?? 0).toDouble(),
     );
   }
 }
 
-class MonthSettings {
+class Settings {
+  String mode;
   double salary;
-  double dailyWage;
+  double workingDays;
   double normalHours;
   double otRate;
+  double dailyWage;
   double advance;
   double deduction;
 
-  MonthSettings({
-    this.salary = 0,
-    this.dailyWage = 0,
+  Settings({
+    this.mode = 'fixed',
+    this.salary = 15000,
+    this.workingDays = 26,
     this.normalHours = 8,
-    this.otRate = 0,
+    this.otRate = 100,
+    this.dailyWage = 0,
     this.advance = 0,
     this.deduction = 0,
   });
 
   Map<String, dynamic> toJson() => {
+        'mode': mode,
         'salary': salary,
-        'dailyWage': dailyWage,
+        'workingDays': workingDays,
         'normalHours': normalHours,
         'otRate': otRate,
+        'dailyWage': dailyWage,
         'advance': advance,
         'deduction': deduction,
       };
 
-  factory MonthSettings.fromJson(Map<String, dynamic> json) {
-    return MonthSettings(
-      salary: (json['salary'] ?? 0).toDouble(),
-      dailyWage: (json['dailyWage'] ?? 0).toDouble(),
-      normalHours: (json['normalHours'] ?? 8).toDouble(),
-      otRate: (json['otRate'] ?? 0).toDouble(),
-      advance: (json['advance'] ?? 0).toDouble(),
-      deduction: (json['deduction'] ?? 0).toDouble(),
+  factory Settings.fromJson(Map<String, dynamic> j) => Settings(
+        mode: j['mode'] ?? 'fixed',
+        salary: (j['salary'] ?? 15000).toDouble(),
+        workingDays: (j['workingDays'] ?? 26).toDouble(),
+        normalHours: (j['normalHours'] ?? 8).toDouble(),
+        otRate: (j['otRate'] ?? 100).toDouble(),
+        dailyWage: (j['dailyWage'] ?? 0).toDouble(),
+        advance: (j['advance'] ?? 0).toDouble(),
+        deduction: (j['deduction'] ?? 0).toDouble(),
+      );
+}
+
+class Storage {
+  static Future<Map<String, Attendance>> attendance() async {
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString('attendance');
+    if (raw == null) return {};
+
+    final map = Map<String, dynamic>.from(jsonDecode(raw));
+
+    return map.map(
+      (k, v) => MapEntry(
+        k,
+        Attendance.fromJson(Map<String, dynamic>.from(v)),
+      ),
     );
   }
-}
 
-String dateKey(DateTime date) {
-  return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-}
+  static Future<Settings> settings() async {
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString('settings');
 
-String monthKey(int year, int month) {
-  return '$year-${month.toString().padLeft(2, '0')}';
-}
+    if (raw == null) return Settings();
 
-String money(double value) {
-  return '₹${value.toStringAsFixed(value % 1 == 0 ? 0 : 2)}';
-}
-
-String fmt(double value) {
-  return value % 1 == 0 ? value.toInt().toString() : value.toStringAsFixed(1);
-}
-
-const List<String> months = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
-
-class LocalStorage extends ChangeNotifier {
-  final Map<String, Attendance> attendance = {};
-  final Map<String, MonthSettings> settings = {};
-
-  SharedPreferences? prefs;
-
-  Future<void> load() async {
-    prefs = await SharedPreferences.getInstance();
-
-    final attendanceData = prefs!.getString('attendance');
-
-    if (attendanceData != null) {
-      final map = jsonDecode(attendanceData) as Map<String, dynamic>;
-
-      for (final item in map.entries) {
-        attendance[item.key] =
-            Attendance.fromJson(item.value as Map<String, dynamic>);
-      }
-    }
-
-    final settingsData = prefs!.getString('settings');
-
-    if (settingsData != null) {
-      final map = jsonDecode(settingsData) as Map<String, dynamic>;
-
-      for (final item in map.entries) {
-        settings[item.key] =
-            MonthSettings.fromJson(item.value as Map<String, dynamic>);
-      }
-    }
+    return Settings.fromJson(
+      Map<String, dynamic>.from(jsonDecode(raw)),
+    );
   }
 
-  Future<void> save() async {
-    await prefs?.setString(
+  static Future<void> saveAttendance(
+      Map<String, Attendance> data) async {
+    final p = await SharedPreferences.getInstance();
+
+    await p.setString(
       'attendance',
       jsonEncode(
-        attendance.map(
-          (key, value) => MapEntry(key, value.toJson()),
+        data.map(
+          (k, v) => MapEntry(k, v.toJson()),
         ),
       ),
     );
+  }
 
-    await prefs?.setString(
+  static Future<void> saveSettings(Settings data) async {
+    final p = await SharedPreferences.getInstance();
+
+    await p.setString(
       'settings',
-      jsonEncode(
-        settings.map(
-          (key, value) => MapEntry(key, value.toJson()),
-        ),
-      ),
+      jsonEncode(data.toJson()),
     );
-  }
-
-  Attendance? getAttendance(DateTime date) {
-    return attendance[dateKey(date)];
-  }
-
-  MonthSettings getSettings(int year, int month) {
-    return settings.putIfAbsent(
-      monthKey(year, month),
-      () => MonthSettings(),
-    );
-  }
-
-  Future<void> setAttendance(
-    DateTime date,
-    Attendance value,
-  ) async {
-    attendance[dateKey(date)] = value;
-    await save();
-    notifyListeners();
-  }
-
-  Future<void> deleteAttendance(DateTime date) async {
-    attendance.remove(dateKey(date));
-    await save();
-    notifyListeners();
-  }
-
-  Future<void> setSettings(
-    int year,
-    int month,
-    MonthSettings value,
-  ) async {
-    settings[monthKey(year, month)] = value;
-    await save();
-    notifyListeners();
   }
 }
 
-class WorkerPayApp extends StatelessWidget {
-  final LocalStorage storage;
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
 
-  const WorkerPayApp({
-    super.key,
-    required this.storage,
-  });
+  runApp(const WorkerPay());
+}
+
+class WorkerPay extends StatelessWidget {
+  const WorkerPay({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: storage,
-      builder: (context, child) {
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          title: 'Worker Pay',
-          theme: ThemeData(
-            useMaterial3: true,
-            scaffoldBackgroundColor: bgColor,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: primaryBlue,
-            ),
-          ),
-          home: MainScreen(storage: storage),
-        );
-      },
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Worker Pay',
+      theme: ThemeData(
+        useMaterial3: true,
+        scaffoldBackgroundColor: bg,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: primary,
+        ),
+      ),
+      home: const Home(),
     );
   }
 }
 
-class MainScreen extends StatefulWidget {
-  final LocalStorage storage;
-
-  const MainScreen({
-    super.key,
-    required this.storage,
-  });
+class Home extends StatefulWidget {
+  const Home({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  State<Home> createState() => _HomeState();
 }
 
-class _MainScreenState extends State<MainScreen> {
-  int selectedTab = 0;
+class _HomeState extends State<Home> {
+  int page = 0;
 
-  DateTime selectedMonth = DateTime(
+  DateTime month = DateTime(
     DateTime.now().year,
     DateTime.now().month,
   );
 
+  Map<String, Attendance> data = {};
+  Settings settings = Settings();
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    data = await Storage.attendance();
+    settings = await Storage.settings();
+
+    if (mounted) setState(() {});
+  }
+
+  String key(DateTime d) =>
+      '${d.year}-${d.month}-${d.day}';
+
+  Future<void> editDay(DateTime d) async {
+    final old = data[key(d)];
+
+    final result = await showDialog<Attendance>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AttendanceDialog(
+        date: d,
+        initial: old ??
+            Attendance(
+              status: DayStatus.present,
+              hours: settings.normalHours,
+            ),
+        normalHours: settings.normalHours,
+      ),
+    );
+
+    if (result == null) return;
+
+    if (result.status == DayStatus.none) {
+      data.remove(key(d));
+    } else {
+      data[key(d)] = result;
+    }
+
+    await Storage.saveAttendance(data);
+
+    setState(() {});
+  }
+
+  Future<void> settingsPage() async {
+    final result = await showModalBottomSheet<Settings>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SettingsSheet(
+        initial: settings,
+        month: month,
+      ),
+    );
+
+    if (result == null) return;
+
+    settings = result;
+
+    await Storage.saveSettings(settings);
+
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      MonthScreen(
-        storage: widget.storage,
-        month: selectedMonth,
-        onMonthChanged: (month) {
-          setState(() {
-            selectedMonth = month;
-          });
-        },
-      ),
-      YearScreen(
-        storage: widget.storage,
-        year: selectedMonth.year,
-        onMonthSelected: (month) {
-          setState(() {
-            selectedMonth = month;
-            selectedTab = 0;
-          });
-        },
-      ),
-      SummaryScreen(
-        storage: widget.storage,
-        month: selectedMonth,
-      ),
-    ];
-
     return Scaffold(
       body: SafeArea(
-        child: pages[selectedTab],
+        child: IndexedStack(
+          index: page,
+          children: [
+            MonthPage(
+              month: month,
+              data: data,
+              onDay: editDay,
+              previous: () {
+                setState(() {
+                  month = DateTime(
+                    month.year,
+                    month.month - 1,
+                  );
+                });
+              },
+              next: () {
+                setState(() {
+                  month = DateTime(
+                    month.year,
+                    month.month + 1,
+                  );
+                });
+              },
+              settings: settingsPage,
+            ),
+
+            YearPage(
+              year: month.year,
+              data: data,
+              onDay: editDay,
+              previous: () {
+                setState(() {
+                  month = DateTime(
+                    month.year - 1,
+                    month.month,
+                  );
+                });
+              },
+              next: () {
+                setState(() {
+                  month = DateTime(
+                    month.year + 1,
+                    month.month,
+                  );
+                });
+              },
+            ),
+
+            SummaryPage(
+              month: month,
+              data: data,
+              settings: settings,
+              previous: () {
+                setState(() {
+                  month = DateTime(
+                    month.year,
+                    month.month - 1,
+                  );
+                });
+              },
+              next: () {
+                setState(() {
+                  month = DateTime(
+                    month.year,
+                    month.month + 1,
+                  );
+                });
+              },
+              edit: settingsPage,
+            ),
+          ],
+        ),
       ),
+
       bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedTab,
-        onDestinationSelected: (index) {
-          setState(() {
-            selectedTab = index;
-          });
+        height: 78,
+        backgroundColor: const Color(0xFFEFF1F6),
+        indicatorColor: const Color(0xFFD7E8FA),
+        selectedIndex: page,
+        onDestinationSelected: (i) {
+          setState(() => page = i);
         },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.calendar_month),
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
             label: 'Month',
           ),
           NavigationDestination(
-            icon: Icon(Icons.date_range),
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today),
             label: 'Year',
           ),
           NavigationDestination(
-            icon: Icon(Icons.currency_rupee),
+            icon: Icon(Icons.currency_rupee_outlined),
+            selectedIcon: Icon(Icons.currency_rupee),
             label: 'Summary',
           ),
         ],
@@ -316,783 +353,40 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class MonthScreen extends StatelessWidget {
-  final LocalStorage storage;
+/* =========================
+   MONTH PAGE
+========================= */
+
+class MonthPage extends StatelessWidget {
   final DateTime month;
-  final ValueChanged<DateTime> onMonthChanged;
+  final Map<String, Attendance> data;
+  final Future<void> Function(DateTime) onDay;
+  final VoidCallback previous;
+  final VoidCallback next;
+  final VoidCallback settings;
 
-  const MonthScreen({
+  const MonthPage({
     super.key,
-    required this.storage,
     required this.month,
-    required this.onMonthChanged,
+    required this.data,
+    required this.onDay,
+    required this.previous,
+    required this.next,
+    required this.settings,
   });
 
   @override
   Widget build(BuildContext context) {
-    final total = calculateTotals(storage, month);
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            16,
-            12,
-            16,
-            8,
-          ),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Worker Pay',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: () {
-                  onMonthChanged(
-                    DateTime(
-                      month.year,
-                      month.month - 1,
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.chevron_left),
-              ),
-              Text(
-                '${months[month.month - 1]} ${month.year}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              IconButton(
-                onPressed: () {
-                  onMonthChanged(
-                    DateTime(
-                      month.year,
-                      month.month + 1,
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.chevron_right),
-              ),
-            ],
-          ),
-        ),
-
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-          ),
-          child: Row(
-            children: [
-              QuickButton(
-                icon: Icons.access_time,
-                label: 'Hours',
-                color: primaryBlue,
-                onTap: () {
-                  showMessage(
-                    context,
-                    'Working Hours',
-                    '${fmt(total.hours)} H',
-                  );
-                },
-              ),
-              const SizedBox(width: 8),
-              QuickButton(
-                icon: Icons.more_time,
-                label: 'OT',
-                color: otColor,
-                onTap: () {
-                  showMessage(
-                    context,
-                    'Overtime',
-                    '${fmt(total.ot)} H',
-                  );
-                },
-              ),
-              const SizedBox(width: 8),
-              QuickButton(
-                icon: Icons.currency_rupee,
-                label: 'Payment',
-                color: primaryBlue,
-                onTap: () {
-                  showMessage(
-                    context,
-                    'Expected Payment',
-                    money(total.expected),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 10),
-
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                CalendarCard(
-                  storage: storage,
-                  month: month,
-                  onDateTap: (date) {
-                    showAttendanceDialog(
-                      context,
-                      storage,
-                      date,
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                MiniSummary(
-                  storage: storage,
-                  month: month,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class QuickButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const QuickButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: OutlinedButton.icon(
-        onPressed: onTap,
-        icon: Icon(
-          icon,
-          color: color,
-        ),
-        label: Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class CalendarCard extends StatelessWidget {
-  final LocalStorage storage;
-  final DateTime month;
-  final ValueChanged<DateTime> onDateTap;
-
-  const CalendarCard({
-    super.key,
-    required this.storage,
-    required this.month,
-    required this.onDateTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final firstDay = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
-
-    final daysInMonth = DateTime(
-      month.year,
-      month.month + 1,
-      0,
-    ).day;
-
-    final firstDayIndex = firstDay.weekday % 7;
-
-    final cells =
-        ((firstDayIndex + daysInMonth + 6) ~/ 7) * 7;
-
-    const weekdays = [
-      'SUN',
-      'MON',
-      'TUE',
-      'WED',
-      'THU',
-      'FRI',
-      'SAT',
-    ];
-
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(
-          color: borderColor,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          children: [
-            Row(
-              children: weekdays
-                  .map(
-                    (day) => Expanded(
-                      child: Center(
-                        child: Text(
-                          day,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: secondaryColor,
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-
-            const SizedBox(height: 8),
-
-            GridView.builder(
-              shrinkWrap: true,
-              physics:
-                  const NeverScrollableScrollPhysics(),
-              itemCount: cells,
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 7,
-                childAspectRatio: .72,
-              ),
-              itemBuilder: (context, index) {
-                final day =
-                    index - firstDayIndex + 1;
-
-                if (day < 1 ||
-                    day > daysInMonth) {
-                  return const SizedBox();
-                }
-
-                final date = DateTime(
-                  month.year,
-                  month.month,
-                  day,
-                );
-
-                final attendance =
-                    storage.getAttendance(date);
-
-                return InkWell(
-                  onTap: () => onDateTap(date),
-                  borderRadius:
-                      BorderRadius.circular(10),
-                  child: Container(
-                    margin: const EdgeInsets.all(2),
-                    padding:
-                        const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color:
-                          getCellBackground(
-                        attendance,
-                      ),
-                      borderRadius:
-                          BorderRadius.circular(10),
-                      border: Border.all(
-                        color:
-                            getCellBorder(
-                          attendance,
-                        ),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$day',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight:
-                                FontWeight.bold,
-                            color:
-                                getTextColor(
-                              attendance,
-                            ),
-                          ),
-                        ),
-
-                        if (attendance != null &&
-                            attendance.hours > 0)
-                          Text(
-                            '${fmt(attendance.hours)}H',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight:
-                                  FontWeight.bold,
-                              color:
-                                  getTextColor(
-                                attendance,
-                              ),
-                            ),
-                          ),
-
-                        if (attendance != null &&
-                            attendance.otHours > 0)
-                          const Text(
-                            'OT',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight:
-                                  FontWeight.bold,
-                              color: otColor,
-                            ),
-                          ),
-
-                        if (attendance != null &&
-                            attendance.status ==
-                                'holiday')
-                          const Text(
-                            'Holiday',
-                            style: TextStyle(
-                              fontSize: 7,
-                              color:
-                                  secondaryColor,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-Color getCellBackground(
-  Attendance? attendance,
-) {
-  if (attendance == null) {
-    return Colors.white;
-  }
-
-  switch (attendance.status) {
-    case 'present':
-      return presentColor.withOpacity(.08);
-
-    case 'absent':
-      return absentColor.withOpacity(.08);
-
-    case 'half':
-      return halfDayColor.withOpacity(.10);
-
-    case 'holiday':
-      return holidayColor;
-
-    default:
-      return Colors.white;
-  }
-}
-
-Color getCellBorder(
-  Attendance? attendance,
-) {
-  if (attendance == null) {
-    return borderColor;
-  }
-
-  switch (attendance.status) {
-    case 'present':
-      return presentColor.withOpacity(.45);
-
-    case 'absent':
-      return absentColor.withOpacity(.45);
-
-    case 'half':
-      return halfDayColor.withOpacity(.55);
-
-    case 'holiday':
-      return const Color(0xFFCBD5E1);
-
-    default:
-      return borderColor;
-  }
-}
-
-Color getTextColor(
-  Attendance? attendance,
-) {
-  if (attendance == null) {
-    return textColor;
-  }
-
-  switch (attendance.status) {
-    case 'present':
-      return presentColor;
-
-    case 'absent':
-      return absentColor;
-
-    case 'half':
-      return halfDayColor;
-
-    default:
-      return secondaryColor;
-  }
-}
-
-class MiniSummary extends StatelessWidget {
-  final LocalStorage storage;
-  final DateTime month;
-
-  const MiniSummary({
-    super.key,
-    required this.storage,
-    required this.month,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final total =
-        calculateTotals(storage, month);
-
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${months[month.month - 1]} Summary',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                StatChip(
-                  label: 'Present',
-                  value: '${total.present}',
-                  color: presentColor,
-                ),
-                StatChip(
-                  label: 'Absent',
-                  value: '${total.absent}',
-                  color: absentColor,
-                ),
-                StatChip(
-                  label: 'Half Day',
-                  value: '${total.half}',
-                  color: halfDayColor,
-                ),
-                StatChip(
-                  label: 'Holiday',
-                  value: '${total.holiday}',
-                  color: secondaryColor,
-                ),
-                StatChip(
-                  label: 'Hours',
-                  value: '${fmt(total.hours)} H',
-                  color: primaryBlue,
-                ),
-                StatChip(
-                  label: 'OT',
-                  value: '${fmt(total.ot)} H',
-                  color: otColor,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class StatChip extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const StatChip({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 8,
-      ),
-      decoration: BoxDecoration(
-        color: color.withOpacity(.08),
-        borderRadius:
-            BorderRadius.circular(10),
-      ),
-      child: Text(
-        '$label: $value',
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
-}
-
-class YearScreen extends StatelessWidget {
-  final LocalStorage storage;
-  final int year;
-  final ValueChanged<DateTime>
-      onMonthSelected;
-
-  const YearScreen({
-    super.key,
-    required this.storage,
-    required this.year,
-    required this.onMonthSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Year Calendar',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: textColor,
-              ),
-            ),
-          ),
-        ),
-
-        Expanded(
-          child: GridView.builder(
-            padding:
-                const EdgeInsets.all(12),
-            itemCount: 12,
-            gridDelegate:
-                const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 1.25,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-            ),
-            itemBuilder: (context, index) {
-              final monthNumber =
-                  index + 1;
-
-              return InkWell(
-                onTap: () {
-                  onMonthSelected(
-                    DateTime(
-                      year,
-                      monthNumber,
-                    ),
-                  );
-                },
-                child: Card(
-                  color: Colors.white,
-                  elevation: 0,
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.all(10),
-                    child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          months[
-                              monthNumber - 1],
-                          style:
-                              const TextStyle(
-                            fontWeight:
-                                FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Expanded(
-                          child: MiniMonth(
-                            storage: storage,
-                            year: year,
-                            month:
-                                monthNumber,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class MiniMonth extends StatelessWidget {
-  final LocalStorage storage;
-  final int year;
-  final int month;
-
-  const MiniMonth({
-    super.key,
-    required this.storage,
-    required this.year,
-    required this.month,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final firstDay =
-        DateTime(year, month, 1);
-
-    final days =
-        DateTime(year, month + 1, 0).day;
-
-    final start =
-        firstDay.weekday % 7;
-
-    return GridView.builder(
-      physics:
-          const NeverScrollableScrollPhysics(),
-      itemCount: 42,
-      gridDelegate:
-          const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 7,
-      ),
-      itemBuilder: (context, index) {
-        final day =
-            index - start + 1;
-
-        if (day < 1 || day > days) {
-          return const SizedBox();
-        }
-
-        final attendance =
-            storage.getAttendance(
-          DateTime(year, month, day),
-        );
-
-        Color? color;
-
-        if (attendance != null) {
-          color =
-              getTextColor(attendance);
-        }
-
-        return Center(
-          child: Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                '$day',
-                style: TextStyle(
-                  fontSize: 6,
-                  color: color == null
-                      ? secondaryColor
-                      : Colors.white,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class SummaryScreen extends StatelessWidget {
-  final LocalStorage storage;
-  final DateTime month;
-
-  const SummaryScreen({
-    super.key,
-    required this.storage,
-    required this.month,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final total =
-        calculateTotals(storage, month);
-
-    final settings =
-        storage.getSettings(
-      month.year,
-      month.month,
-    );
-
-    final basicPayment =
-        settings.salary > 0
-            ? (settings.salary / 30) *
-                (total.present +
-                    total.half * .5)
-            : settings.dailyWage *
-                (total.present +
-                    total.half * .5);
-
-    final otPayment =
-        total.ot * settings.otRate;
-
-    final expected =
-        basicPayment +
-            otPayment -
-            settings.advance -
-            settings.deduction;
+    final c = counts(month, data);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        18,
+        22,
+        18,
+        20,
+      ),
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
@@ -1101,149 +395,752 @@ class SummaryScreen extends StatelessWidget {
             children: [
               const Expanded(
                 child: Text(
-                  'Payment Summary',
+                  'Worker Pay',
                   style: TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w400,
+                    color: textDark,
+                  ),
+                ),
+              ),
+
+              IconButton(
+                onPressed: previous,
+                icon: const Icon(
+                  Icons.chevron_left,
+                  size: 34,
+                ),
+              ),
+
+              Flexible(
+                child: Text(
+                  monthName(month),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 20,
+                  ),
+                ),
+              ),
+
+              IconButton(
+                onPressed: next,
+                icon: const Icon(
+                  Icons.chevron_right,
+                  size: 34,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          Row(
+            children: [
+              Expanded(
+                child: Pill(
+                  icon: Icons.access_time,
+                  text: 'Hours',
+                  color: primary,
+                  onTap: settings,
+                ),
+              ),
+
+              const SizedBox(width: 9),
+
+              Expanded(
+                child: Pill(
+                  icon: Icons.more_time,
+                  text: 'OT',
+                  color: green,
+                  onTap: settings,
+                ),
+              ),
+
+              const SizedBox(width: 9),
+
+              Expanded(
+                child: Pill(
+                  icon: Icons.currency_rupee,
+                  text: 'Payment',
+                  color: primary,
+                  onTap: settings,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 26),
+
+          CalendarWidget(
+            month: month,
+            data: data,
+            onDay: onDay,
+          ),
+
+          const SizedBox(height: 18),
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(25),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${monthName(month)} Summary',
+                  style: const TextStyle(
                     fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 12,
+                  children: [
+                    ChipBox(
+                      'Present: ${c['present']!.toInt()}',
+                      const Color(0xFFE8F4FB),
+                      primary,
+                    ),
+                    ChipBox(
+                      'Absent: ${c['absent']!.toInt()}',
+                      const Color(0xFFFFEEF0),
+                      red,
+                    ),
+                    ChipBox(
+                      'Half Day: ${c['half']!.toInt()}',
+                      const Color(0xFFFFF3E5),
+                      orange,
+                    ),
+                    ChipBox(
+                      'Holiday: ${c['holiday']!.toInt()}',
+                      const Color(0xFFF0F2F4),
+                      textGrey,
+                    ),
+                    ChipBox(
+                      'Hours: ${fmt(c['hours']!)} H',
+                      const Color(0xFFE8F4FB),
+                      primary,
+                    ),
+                    ChipBox(
+                      'OT: ${fmt(c['ot']!)} H',
+                      const Color(0xFFE8F8EF),
+                      green,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class Pill extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
+  final VoidCallback onTap;
+
+  const Pill({
+    super.key,
+    required this.icon,
+    required this.text,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(
+        icon,
+        color: color,
+        size: 27,
+      ),
+      label: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize: 17,
+        ),
+      ),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 13,
+        ),
+        side: const BorderSide(
+          color: Color(0xFF8D969E),
+          width: 1.4,
+        ),
+        shape: const StadiumBorder(),
+      ),
+    );
+  }
+}
+
+class CalendarWidget extends StatelessWidget {
+  final DateTime month;
+  final Map<String, Attendance> data;
+  final Future<void> Function(DateTime) onDay;
+
+  const CalendarWidget({
+    super.key,
+    required this.month,
+    required this.data,
+    required this.onDay,
+  });
+
+  Attendance? getDay(DateTime d) {
+    return data['${d.year}-${d.month}-${d.day}'];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final first =
+        DateTime(month.year, month.month, 1);
+
+    final offset = first.weekday % 7;
+
+    final total =
+        DateTime(month.year, month.month + 1, 0).day;
+
+    final cells = <DateTime?>[];
+
+    for (int i = 0; i < offset; i++) {
+      cells.add(null);
+    }
+
+    for (int i = 1; i <= total; i++) {
+      cells.add(
+        DateTime(month.year, month.month, i),
+      );
+    }
+
+    while (cells.length % 7 != 0) {
+      cells.add(null);
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        12,
+        17,
+        12,
+        17,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: border,
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: const [
+              'SUN',
+              'MON',
+              'TUE',
+              'WED',
+              'THU',
+              'FRI',
+              'SAT',
+            ]
+                .map(
+                  (e) => Expanded(
+                    child: Center(
+                      child: Text(
+                        e,
+                        style: TextStyle(
+                          color: textGrey,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+
+          const SizedBox(height: 12),
+
+          GridView.builder(
+            shrinkWrap: true,
+            physics:
+                const NeverScrollableScrollPhysics(),
+            itemCount: cells.length,
+            gridDelegate:
+                const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: .88,
+            ),
+            itemBuilder: (_, index) {
+              final d = cells[index];
+
+              if (d == null) {
+                return const SizedBox();
+              }
+
+              final a = getDay(d);
+
+              return InkWell(
+                borderRadius:
+                    BorderRadius.circular(17),
+                onTap: () => onDay(d),
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: a == null
+                        ? Colors.white
+                        : fill(a.status),
+                    borderRadius:
+                        BorderRadius.circular(17),
+                    border: Border.all(
+                      color: a == null
+                          ? border
+                          : dayBorder(a.status),
+                      width:
+                          a == null ? 1.2 : 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${d.day}',
+                        style: TextStyle(
+                          fontSize: 17,
+                          color: d.weekday ==
+                                  DateTime.sunday
+                              ? red
+                              : textDark,
+                        ),
+                      ),
+
+                      const Spacer(),
+
+                      if (a != null &&
+                          a.hours > 0)
+                        Text(
+                          '${fmt(a.hours)}H',
+                          style:
+                              const TextStyle(
+                            color: primary,
+                            fontSize: 12,
+                            fontWeight:
+                                FontWeight.w700,
+                          ),
+                        ),
+
+                      if (a != null &&
+                          a.ot > 0)
+                        Text(
+                          'OT ${fmt(a.ot)}H',
+                          style:
+                              const TextStyle(
+                            color: green,
+                            fontSize: 11,
+                            fontWeight:
+                                FontWeight.w700,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ChipBox extends StatelessWidget {
+  final String text;
+  final Color bgColor;
+  final Color color;
+
+  const ChipBox(
+    this.text,
+    this.bgColor,
+    this.color, {
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 17,
+        vertical: 13,
+      ),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(17),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
+
+/* =========================
+   SUMMARY PAGE
+========================= */
+
+class SummaryPage extends StatelessWidget {
+  final DateTime month;
+  final Map<String, Attendance> data;
+  final Settings settings;
+  final VoidCallback previous;
+  final VoidCallback next;
+  final VoidCallback edit;
+
+  const SummaryPage({
+    super.key,
+    required this.month,
+    required this.data,
+    required this.settings,
+    required this.previous,
+    required this.next,
+    required this.edit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = counts(month, data);
+
+    double daily;
+
+    if (settings.mode == 'daily') {
+      daily = settings.dailyWage;
+    } else if (settings.mode == 'month') {
+      final days =
+          DateTime(month.year, month.month + 1, 0).day;
+      daily = settings.salary / days;
+    } else {
+      daily = settings.salary /
+          (settings.workingDays <= 0
+              ? 26
+              : settings.workingDays);
+    }
+
+    final payableDays =
+        c['present']! + c['half']! * .5;
+
+    final basic =
+        payableDays * daily;
+
+    final otAmount =
+        c['ot']! * settings.otRate;
+
+    final total =
+        basic +
+        otAmount -
+        settings.advance -
+        settings.deduction;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        18,
+        22,
+        18,
+        25,
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Attendance & Payment Summary',
+                  style: TextStyle(
+                    fontSize: 23,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               IconButton(
-                onPressed: () {
-                  showSettingsDialog(
-                    context,
-                    storage,
-                    month,
-                  );
-                },
-                icon:
-                    const Icon(Icons.settings),
+                onPressed: previous,
+                icon: const Icon(
+                  Icons.chevron_left,
+                  size: 32,
+                ),
               ),
-            ],
-          ),
-
-          Text(
-            '${months[month.month - 1]} ${month.year}',
-            style: const TextStyle(
-              color: secondaryColor,
-            ),
-          ),
-
-          const SizedBox(height: 15),
-
-          InfoCard(
-            title: 'Attendance',
-            children: [
-              infoRow(
-                'Present',
-                '${total.present} Days',
-                presentColor,
+              Flexible(
+                child: Text(
+                  monthName(month),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              infoRow(
-                'Absent',
-                '${total.absent} Days',
-                absentColor,
-              ),
-              infoRow(
-                'Half Day',
-                '${total.half} Days',
-                halfDayColor,
-              ),
-              infoRow(
-                'Holiday',
-                '${total.holiday} Days',
-                secondaryColor,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10),
-
-          InfoCard(
-            title: 'Working Time',
-            children: [
-              infoRow(
-                'Working Hours',
-                '${fmt(total.hours)} H',
-                primaryBlue,
-              ),
-              infoRow(
-                'OT Hours',
-                '${fmt(total.ot)} H',
-                otColor,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10),
-
-          InfoCard(
-            title: 'Payment',
-            children: [
-              infoRow(
-                'Monthly Salary',
-                money(settings.salary),
-                primaryBlue,
-              ),
-              infoRow(
-                'Daily Wage',
-                money(settings.dailyWage),
-                primaryBlue,
-              ),
-              infoRow(
-                'OT Rate',
-                '${money(settings.otRate)} / hour',
-                otColor,
-              ),
-              infoRow(
-                'Basic Payment',
-                money(basicPayment),
-                primaryBlue,
-              ),
-              infoRow(
-                'OT Payment',
-                money(otPayment),
-                otColor,
-              ),
-              infoRow(
-                'Advance',
-                money(settings.advance),
-                absentColor,
-              ),
-              infoRow(
-                'Deduction',
-                money(settings.deduction),
-                absentColor,
-              ),
-              const Divider(),
-              infoRow(
-                'Expected Payment',
-                money(expected),
-                primaryBlue,
-                big: true,
+              IconButton(
+                onPressed: next,
+                icon: const Icon(
+                  Icons.chevron_right,
+                  size: 32,
+                ),
               ),
             ],
           ),
 
           const SizedBox(height: 12),
 
-          FilledButton.icon(
-            onPressed: () {
-              showSettingsDialog(
-                context,
-                storage,
-                month,
-              );
-            },
-            icon: const Icon(Icons.edit),
-            label: const Text(
-              'Edit Salary / OT Settings',
+          Section(
+            title: 'ATTENDANCE BREAKDOWN',
+            icon: Icons.calendar_month,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: BigStat(
+                        '${c['present']!.toInt()} Days',
+                        'Present',
+                        const Color(0xFFE8F4FB),
+                        primary,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: BigStat(
+                        '${c['absent']!.toInt()} Days',
+                        'Absent',
+                        const Color(0xFFFFEEEE),
+                        red,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: BigStat(
+                        '${c['half']!.toInt()} Days',
+                        'Half Day',
+                        const Color(0xFFFFF7D9),
+                        orange,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: BigStat(
+                        '${c['holiday']!.toInt()} Days',
+                        'Leave / Holiday',
+                        const Color(0xFFF0F2F4),
+                        textGrey,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 13),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: InfoBox(
+                        'Working Hours',
+                        '${fmt(c['hours']!)} H',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: InfoBox(
+                        'Overtime (OT) Hours',
+                        '${fmt(c['ot']!)} H',
+                        greenBox: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            style: FilledButton.styleFrom(
-              backgroundColor: primaryBlue,
-              minimumSize:
-                  const Size.fromHeight(50),
+          ),
+
+          const SizedBox(height: 14),
+
+          Section(
+            title: 'PAYMENT CALCULATION',
+            icon: Icons.currency_rupee,
+            trailing: TextButton.icon(
+              onPressed: edit,
+              icon: const Icon(
+                Icons.edit,
+                size: 16,
+              ),
+              label: const Text('Edit Rates'),
+            ),
+            child: Column(
+              children: [
+                PayRow(
+                  'Monthly Salary Base',
+                  money(settings.salary),
+                ),
+
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    settings.mode == 'fixed'
+                        ? 'Formula: ${settings.workingDays.toInt()} fixed days (${money(daily)}/day)'
+                        : settings.mode == 'month'
+                            ? 'Formula: monthly salary / calendar days'
+                            : 'Formula: direct daily wage',
+                    style: const TextStyle(
+                      color: Color(0xFFB0B5BA),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                PayRow(
+                  'Basic Payment',
+                  money(basic),
+                  bold: true,
+                ),
+
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Present (${c['present']!.toInt()}) + Half Days (${c['half']!.toInt()} × 0.5) = ${payableDays.toStringAsFixed(1)} days',
+                    style: const TextStyle(
+                      color: Color(0xFFB0B5BA),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                PayRow(
+                  'OT Rate',
+                  '${money(settings.otRate)} / Hour',
+                  bold: true,
+                ),
+
+                const SizedBox(height: 12),
+
+                PayRow(
+                  'OT Amount',
+                  '+ ${money(otAmount)}',
+                  green: true,
+                  bold: true,
+                ),
+
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${money(settings.otRate)} × ${fmt(c['ot']!)} H',
+                    style: const TextStyle(
+                      color: Color(0xFFB0B5BA),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+
+                if (settings.advance > 0)
+                  Padding(
+                    padding:
+                        const EdgeInsets.only(top: 13),
+                    child: PayRow(
+                      'Advance',
+                      '- ${money(settings.advance)}',
+                      redText: true,
+                    ),
+                  ),
+
+                if (settings.deduction > 0)
+                  Padding(
+                    padding:
+                        const EdgeInsets.only(top: 13),
+                    child: PayRow(
+                      'Deduction',
+                      '- ${money(settings.deduction)}',
+                      redText: true,
+                    ),
+                  ),
+
+                const SizedBox(height: 22),
+
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: primary,
+                    borderRadius:
+                        BorderRadius.circular(17),
+                  ),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Expected Total Payment',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight:
+                                    FontWeight.w600,
+                              ),
+                            ),
+                            SizedBox(height: 5),
+                            Text(
+                              'For selected month',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        money(total),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 27,
+                          fontWeight:
+                              FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1252,618 +1149,1309 @@ class SummaryScreen extends StatelessWidget {
   }
 }
 
-class InfoCard extends StatelessWidget {
+class Section extends StatelessWidget {
   final String title;
-  final List<Widget> children;
+  final IconData icon;
+  final Widget child;
+  final Widget? trailing;
 
-  const InfoCard({
+  const Section({
     super.key,
     required this.title,
-    required this.children,
+    required this.icon,
+    required this.child,
+    this.trailing,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      child: Padding(
-        padding:
-            const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight:
-                    FontWeight.bold,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                icon,
+                color: primary,
+                size: 19,
               ),
-            ),
-            const SizedBox(height: 8),
-            ...children,
-          ],
-        ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: primary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .6,
+                  ),
+                ),
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+          const SizedBox(height: 15),
+          child,
+        ],
       ),
     );
   }
 }
 
-Widget infoRow(
-  String title,
-  String value,
-  Color color, {
-  bool big = false,
-}) {
-  return Padding(
-    padding:
-        const EdgeInsets.symmetric(
-      vertical: 5,
-    ),
-    child: Row(
+class BigStat extends StatelessWidget {
+  final String value;
+  final String label;
+  final Color background;
+  final Color color;
+
+  const BigStat(
+    this.value,
+    this.label,
+    this.background,
+    this.color, {
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        vertical: 16,
+        horizontal: 5,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class InfoBox extends StatelessWidget {
+  final String title;
+  final String value;
+  final bool greenBox;
+
+  const InfoBox(
+    this.title,
+    this.value, {
+    super.key,
+    this.greenBox = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(17),
+      decoration: BoxDecoration(
+        color: greenBox
+            ? const Color(0xFFE9FAF0)
+            : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color:
+                  greenBox ? green : textGrey,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 21,
+              fontWeight: FontWeight.w600,
+              color: textDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PayRow extends StatelessWidget {
+  final String title;
+  final String value;
+  final bool green;
+  final bool redText;
+  final bool bold;
+
+  const PayRow(
+    this.title,
+    this.value, {
+    super.key,
+    this.green = false,
+    this.redText = false,
+    this.bold = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
       children: [
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(
-              color: secondaryColor,
+            style: TextStyle(
+              color: textGrey,
+              fontSize: 16,
+              fontWeight: bold
+                  ? FontWeight.w600
+                  : FontWeight.w400,
             ),
           ),
         ),
         Text(
           value,
           style: TextStyle(
-            color: color,
-            fontSize: big ? 21 : 14,
-            fontWeight:
-                FontWeight.bold,
+            color: green
+                ? green
+                : redText
+                    ? red
+                    : primary,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ],
-    ),
-  );
+    );
+  }
 }
 
-class Totals {
-  int present = 0;
-  int absent = 0;
-  int half = 0;
-  int holiday = 0;
+/* =========================
+   ATTENDANCE DIALOG
+========================= */
+
+class AttendanceDialog extends StatefulWidget {
+  final DateTime date;
+  final Attendance initial;
+  final double normalHours;
+
+  const AttendanceDialog({
+    super.key,
+    required this.date,
+    required this.initial,
+    required this.normalHours,
+  });
+
+  @override
+  State<AttendanceDialog> createState() =>
+      _AttendanceDialogState();
+}
+
+class _AttendanceDialogState
+    extends State<AttendanceDialog> {
+  late DayStatus status;
+  late TextEditingController hours;
+  late TextEditingController ot;
+
+  @override
+  void initState() {
+    super.initState();
+
+    status = widget.initial.status;
+
+    if (status == DayStatus.none) {
+      status = DayStatus.present;
+    }
+
+    hours = TextEditingController(
+      text: fmt(
+        widget.initial.hours == 0
+            ? widget.normalHours
+            : widget.initial.hours,
+      ),
+    );
+
+    ot = TextEditingController(
+      text: fmt(widget.initial.ot),
+    );
+  }
+
+  @override
+  void dispose() {
+    hours.dispose();
+    ot.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding:
+          const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 20,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Attendance Entry',
+                    style: TextStyle(
+                      color: textGrey,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () =>
+                      Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+
+            Text(
+              formatDate(widget.date),
+              style: const TextStyle(
+                color: primary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            const Text(
+              'SELECT STATUS',
+              style: TextStyle(
+                color: textGrey,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: [
+                statusButton(
+                  'PRESENT',
+                  DayStatus.present,
+                ),
+                statusButton(
+                  'HALF DAY',
+                  DayStatus.half,
+                ),
+                statusButton(
+                  'ABSENT',
+                  DayStatus.absent,
+                ),
+                statusButton(
+                  'HOLIDAY',
+                  DayStatus.holiday,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 22),
+
+            const Text(
+              'NORMAL WORKING HOURS',
+              style: TextStyle(
+                color: textGrey,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            TextField(
+              controller: hours,
+              keyboardType:
+                  const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration:
+                  const InputDecoration(
+                labelText: 'Hours',
+                prefixIcon:
+                    Icon(Icons.access_time),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            const Text(
+              'OVERTIME (OT) HOURS',
+              style: TextStyle(
+                color: textGrey,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            TextField(
+              controller: ot,
+              keyboardType:
+                  const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration:
+                  const InputDecoration(
+                labelText: 'OT Hours',
+                prefixIcon:
+                    Icon(Icons.more_time),
+                helperText:
+                    'OT will appear in green',
+              ),
+            ),
+
+            const SizedBox(height: 22),
+
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.pop(
+                      context,
+                      Attendance(),
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.delete,
+                    color: red,
+                  ),
+                  label: const Text(
+                    'Delete',
+                    style: TextStyle(
+                      color: red,
+                    ),
+                  ),
+                ),
+
+                const Spacer(),
+
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(
+                      context,
+                      Attendance(
+                        status: status,
+                        hours:
+                            double.tryParse(
+                                  hours.text,
+                                ) ??
+                                0,
+                        ot:
+                            double.tryParse(
+                                  ot.text,
+                                ) ??
+                                0,
+                      ),
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.check_circle,
+                  ),
+                  label: const Text(
+                    'Save Attendance',
+                  ),
+                  style:
+                      FilledButton.styleFrom(
+                    backgroundColor: primary,
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: 17,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget statusButton(
+    String text,
+    DayStatus value,
+  ) {
+    final selected = status == value;
+
+    return InkWell(
+      onTap: () {
+        setState(() => status = value);
+      },
+      borderRadius:
+          BorderRadius.circular(12),
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 11,
+        ),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFFE8F4FB)
+              : Colors.white,
+          border: Border.all(
+            color:
+                selected ? primary : border,
+            width: selected ? 2 : 1,
+          ),
+          borderRadius:
+              BorderRadius.circular(12),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: selected
+                ? primary
+                : textDark,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/* =========================
+   SETTINGS
+========================= */
+
+class SettingsSheet extends StatefulWidget {
+  final Settings initial;
+  final DateTime month;
+
+  const SettingsSheet({
+    super.key,
+    required this.initial,
+    required this.month,
+  });
+
+  @override
+  State<SettingsSheet> createState() =>
+      _SettingsSheetState();
+}
+
+class _SettingsSheetState
+    extends State<SettingsSheet> {
+  late String mode;
+
+  late TextEditingController salary;
+  late TextEditingController days;
+  late TextEditingController hours;
+  late TextEditingController ot;
+  late TextEditingController daily;
+  late TextEditingController advance;
+  late TextEditingController deduction;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final s = widget.initial;
+
+    mode = s.mode;
+
+    salary =
+        TextEditingController(text: fmt(s.salary));
+    days =
+        TextEditingController(text: fmt(s.workingDays));
+    hours =
+        TextEditingController(text: fmt(s.normalHours));
+    ot =
+        TextEditingController(text: fmt(s.otRate));
+    daily =
+        TextEditingController(text: fmt(s.dailyWage));
+    advance =
+        TextEditingController(text: fmt(s.advance));
+    deduction =
+        TextEditingController(text: fmt(s.deduction));
+  }
+
+  @override
+  void dispose() {
+    salary.dispose();
+    days.dispose();
+    hours.dispose();
+    ot.dispose();
+    daily.dispose();
+    advance.dispose();
+    deduction.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final keyboard =
+        MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      height:
+          MediaQuery.of(context).size.height * .93,
+      padding: EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        20 + keyboard,
+      ),
+      decoration:
+          const BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.vertical(
+          top: Radius.circular(28),
+        ),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: border,
+                  borderRadius:
+                      BorderRadius.circular(5),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 15),
+
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Salary & OT Configuration',
+                        style: TextStyle(
+                          fontSize: 23,
+                          fontWeight:
+                              FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'For ${monthName(widget.month)}',
+                        style: const TextStyle(
+                          color: primary,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                IconButton(
+                  onPressed: () =>
+                      Navigator.pop(context),
+                  icon:
+                      const Icon(Icons.close),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 18),
+
+            const Text(
+              'CALCULATION MODE',
+              style: TextStyle(
+                color: textGrey,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+                modeButton(
+                  'Fixed Days',
+                  'fixed',
+                  'Monthly / 26 days',
+                ),
+                modeButton(
+                  'Month Days',
+                  'month',
+                  'Monthly / 30–31 days',
+                ),
+                modeButton(
+                  'Daily Wage',
+                  'daily',
+                  'Direct per day',
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 18),
+
+            if (mode != 'daily')
+              field(
+                'MONTHLY SALARY (₹)',
+                salary,
+                '₹ / Month',
+              ),
+
+            if (mode == 'fixed')
+              field(
+                'STANDARD WORKING DAYS PER MONTH',
+                days,
+                'Days (default 26)',
+              ),
+
+            field(
+              'NORMAL WORKING HOURS PER DAY',
+              hours,
+              'Hours / Day',
+            ),
+
+            field(
+              'OVERTIME (OT) RATE PER HOUR (₹)',
+              ot,
+              '₹ / Hour',
+            ),
+
+            if (mode == 'daily')
+              field(
+                'DAILY WAGE (₹)',
+                daily,
+                '₹ / Day',
+              ),
+
+            field(
+              'OPTIONAL ADVANCE (₹)',
+              advance,
+              'Advance taken',
+            ),
+
+            field(
+              'OPTIONAL DEDUCTION (₹)',
+              deduction,
+              'Other deductions',
+            ),
+
+            const SizedBox(height: 10),
+
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  final result = Settings(
+                    mode: mode,
+                    salary:
+                        number(salary, 15000),
+                    workingDays:
+                        number(days, 26),
+                    normalHours:
+                        number(hours, 8),
+                    otRate:
+                        number(ot, 100),
+                    dailyWage:
+                        number(daily),
+                    advance:
+                        number(advance),
+                    deduction:
+                        number(deduction),
+                  );
+
+                  Navigator.pop(
+                    context,
+                    result,
+                  );
+                },
+                style:
+                    FilledButton.styleFrom(
+                  backgroundColor: primary,
+                  padding:
+                      const EdgeInsets.symmetric(
+                    vertical: 16,
+                  ),
+                ),
+                child:
+                    const Text('Save'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget modeButton(
+    String title,
+    String value,
+    String subtitle,
+  ) {
+    final active = mode == value;
+
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          setState(() => mode = value);
+        },
+        child: Container(
+          height: 74,
+          margin:
+              const EdgeInsets.only(right: 5),
+          padding:
+              const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: active
+                ? const Color(0xFFE8F4FB)
+                : Colors.white,
+            border: Border.all(
+              color:
+                  active ? primary : border,
+              width: active ? 2 : 1,
+            ),
+            borderRadius:
+                BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+            children: [
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: active
+                      ? primary
+                      : textDark,
+                  fontWeight:
+                      FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(
+                  color: textGrey,
+                  fontSize: 9,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget field(
+    String label,
+    TextEditingController controller,
+    String suffix,
+  ) {
+    return Padding(
+      padding:
+          const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: textGrey,
+              fontSize: 13,
+              fontWeight:
+                  FontWeight.w700,
+              letterSpacing: .5,
+            ),
+          ),
+          const SizedBox(height: 7),
+          TextField(
+            controller: controller,
+            keyboardType:
+                const TextInputType.numberWithOptions(
+              decimal: true,
+            ),
+            decoration:
+                InputDecoration(
+              prefixText:
+                  label.contains('₹')
+                      ? '₹ '
+                      : null,
+              suffixText: suffix,
+              filled: true,
+              fillColor:
+                  const Color(0xFFFCFDFE),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* =========================
+   YEAR PAGE
+========================= */
+
+class YearPage extends StatelessWidget {
+  final int year;
+  final Map<String, Attendance> data;
+  final Future<void> Function(DateTime) onDay;
+  final VoidCallback previous;
+  final VoidCallback next;
+
+  const YearPage({
+    super.key,
+    required this.year,
+    required this.data,
+    required this.onDay,
+    required this.previous,
+    required this.next,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding:
+          const EdgeInsets.fromLTRB(
+        18,
+        22,
+        18,
+        25,
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Year Calendar',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight:
+                        FontWeight.w500,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: previous,
+                icon: const Icon(
+                  Icons.chevron_left,
+                  size: 32,
+                ),
+              ),
+              Text(
+                '$year',
+                style:
+                    const TextStyle(
+                  fontSize: 21,
+                ),
+              ),
+              IconButton(
+                onPressed: next,
+                icon: const Icon(
+                  Icons.chevron_right,
+                  size: 32,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          for (int m = 1; m <= 12; m++)
+            Padding(
+              padding:
+                  const EdgeInsets.only(
+                bottom: 12,
+              ),
+              child: YearMonth(
+                year: year,
+                month: m,
+                data: data,
+                onDay: onDay,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class YearMonth extends StatelessWidget {
+  final int year;
+  final int month;
+  final Map<String, Attendance> data;
+  final Future<void> Function(DateTime) onDay;
+
+  const YearMonth({
+    super.key,
+    required this.year,
+    required this.month,
+    required this.data,
+    required this.onDay,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final first =
+        DateTime(year, month, 1);
+
+    final offset = first.weekday % 7;
+
+    final total =
+        DateTime(year, month + 1, 0).day;
+
+    return Container(
+      padding:
+          const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(18),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Text(
+            monthName(first),
+            style: const TextStyle(
+              color: primary,
+              fontSize: 17,
+              fontWeight:
+                  FontWeight.w700,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          Row(
+            children: const [
+              'S',
+              'M',
+              'T',
+              'W',
+              'T',
+              'F',
+              'S',
+            ]
+                .map(
+                  (e) => Expanded(
+                    child: Center(
+                      child: Text(
+                        e,
+                        style:
+                            TextStyle(
+                          color:
+                              textGrey,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+
+          GridView.builder(
+            shrinkWrap: true,
+            physics:
+                const NeverScrollableScrollPhysics(),
+            itemCount:
+                offset + total,
+            gridDelegate:
+                const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              childAspectRatio: 1.3,
+            ),
+            itemBuilder: (_, i) {
+              if (i < offset) {
+                return const SizedBox();
+              }
+
+              final d = DateTime(
+                year,
+                month,
+                i - offset + 1,
+              );
+
+              final a = data[
+                  '${d.year}-${d.month}-${d.day}'];
+
+              return InkWell(
+                onTap: () => onDay(d),
+                child: Center(
+                  child: Text(
+                    '${d.day}',
+                    style: TextStyle(
+                      color: a == null
+                          ? (d.weekday ==
+                                  DateTime.sunday
+                              ? red
+                              : textDark)
+                          : dayColor(
+                              a.status,
+                            ),
+                      fontSize: 12,
+                      fontWeight:
+                          a != null
+                              ? FontWeight.w800
+                              : FontWeight.w400,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* =========================
+   HELPERS
+========================= */
+
+Map<String, double> counts(
+  DateTime month,
+  Map<String, Attendance> data,
+) {
+  double present = 0;
+  double absent = 0;
+  double half = 0;
+  double holiday = 0;
   double hours = 0;
   double ot = 0;
-  double expected = 0;
-}
 
-Totals calculateTotals(
-  LocalStorage storage,
-  DateTime month,
-) {
-  final result = Totals();
-
-  final days =
+  final total =
       DateTime(
         month.year,
         month.month + 1,
         0,
       ).day;
 
-  for (int day = 1;
-      day <= days;
-      day++) {
-    final attendance =
-        storage.getAttendance(
-      DateTime(
-        month.year,
-        month.month,
-        day,
-      ),
-    );
+  for (int i = 1; i <= total; i++) {
+    final a = data[
+        '${month.year}-${month.month}-$i'];
 
-    if (attendance == null) {
-      continue;
+    if (a == null) continue;
+
+    if (a.status ==
+        DayStatus.present) {
+      present++;
     }
 
-    switch (attendance.status) {
-      case 'present':
-        result.present++;
-        break;
-
-      case 'absent':
-        result.absent++;
-        break;
-
-      case 'half':
-        result.half++;
-        break;
-
-      case 'holiday':
-        result.holiday++;
-        break;
+    if (a.status ==
+        DayStatus.absent) {
+      absent++;
     }
 
-    result.hours +=
-        attendance.hours;
+    if (a.status ==
+        DayStatus.half) {
+      half++;
+    }
 
-    result.ot +=
-        attendance.otHours;
+    if (a.status ==
+        DayStatus.holiday) {
+      holiday++;
+    }
+
+    hours += a.hours;
+    ot += a.ot;
   }
 
-  final settings =
-      storage.getSettings(
-    month.year,
-    month.month,
-  );
-
-  final basic =
-      settings.salary > 0
-          ? (settings.salary / 30) *
-              (result.present +
-                  result.half * .5)
-          : settings.dailyWage *
-              (result.present +
-                  result.half * .5);
-
-  result.expected =
-      basic +
-          result.ot * settings.otRate -
-          settings.advance -
-          settings.deduction;
-
-  return result;
+  return {
+    'present': present,
+    'absent': absent,
+    'half': half,
+    'holiday': holiday,
+    'hours': hours,
+    'ot': ot,
+  };
 }
 
-Future<void> showAttendanceDialog(
-  BuildContext context,
-  LocalStorage storage,
-  DateTime date,
-) async {
-  final old =
-      storage.getAttendance(date);
+Color fill(DayStatus status) {
+  switch (status) {
+    case DayStatus.present:
+      return const Color(0xFFEAF6FC);
 
-  final settings =
-      storage.getSettings(
-    date.year,
-    date.month,
-  );
+    case DayStatus.absent:
+      return const Color(0xFFFFEDEE);
 
-  String status =
-      old?.status ?? 'present';
+    case DayStatus.half:
+      return const Color(0xFFFFF5E5);
 
-  final hoursController =
-      TextEditingController(
-    text: old == null
-        ? fmt(settings.normalHours)
-        : fmt(old.hours),
-  );
+    case DayStatus.holiday:
+      return const Color(0xFFF1F3F5);
 
-  final otController =
-      TextEditingController(
-    text: old == null
-        ? '0'
-        : fmt(old.otHours),
-  );
-
-  final rateController =
-      TextEditingController(
-    text: old == null
-        ? fmt(settings.otRate)
-        : fmt(old.otRate),
-  );
-
-  await showDialog(
-    context: context,
-    builder: (context) {
-      return StatefulBuilder(
-        builder:
-            (context, setState) {
-          return AlertDialog(
-            title: Text(
-              '${date.day} ${months[date.month - 1]}',
-            ),
-            content:
-                SingleChildScrollView(
-              child: Column(
-                children: [
-                  DropdownButtonFormField<
-                      String>(
-                    value: status,
-                    decoration:
-                        const InputDecoration(
-                      labelText: 'Status',
-                      border:
-                          OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'present',
-                        child: Text(
-                          'Full Day / Present',
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'absent',
-                        child:
-                            Text('Absent'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'half',
-                        child:
-                            Text('Half Day'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'holiday',
-                        child: Text(
-                          'Holiday / Leave',
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        status =
-                            value ??
-                                'present';
-                      });
-                    },
-                  ),
-
-                  const SizedBox(
-                    height: 10,
-                  ),
-
-                  TextField(
-                    controller:
-                        hoursController,
-                    keyboardType:
-                        const TextInputType
-                            .numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration:
-                        const InputDecoration(
-                      labelText:
-                          'Working Hours',
-                      border:
-                          OutlineInputBorder(),
-                    ),
-                  ),
-
-                  const SizedBox(
-                    height: 10,
-                  ),
-
-                  TextField(
-                    controller:
-                        otController,
-                    keyboardType:
-                        const TextInputType
-                            .numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration:
-                        const InputDecoration(
-                      labelText:
-                          'OT Hours',
-                      border:
-                          OutlineInputBorder(),
-                    ),
-                  ),
-
-                  const SizedBox(
-                    height: 10,
-                  ),
-
-                  TextField(
-                    controller:
-                        rateController,
-                    keyboardType:
-                        const TextInputType
-                            .numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration:
-                        const InputDecoration(
-                      labelText:
-                          'OT Rate / hour',
-                      border:
-                          OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              if (old != null)
-                TextButton(
-                  onPressed: () async {
-                    await storage
-                        .deleteAttendance(
-                      date,
-                    );
-
-                    if (context.mounted) {
-                      Navigator.pop(
-                        context,
-                      );
-                    }
-                  },
-                  child: const Text(
-                    'Delete',
-                    style: TextStyle(
-                      color:
-                          absentColor,
-                    ),
-                  ),
-                ),
-
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(
-                    context,
-                  );
-                },
-                child:
-                    const Text('Cancel'),
-              ),
-
-              FilledButton(
-                onPressed: () async {
-                  final hours =
-                      double.tryParse(
-                            hoursController
-                                .text,
-                          ) ??
-                          0;
-
-                  final ot =
-                      double.tryParse(
-                            otController
-                                .text,
-                          ) ??
-                          0;
-
-                  final rate =
-                      double.tryParse(
-                            rateController
-                                .text,
-                          ) ??
-                          settings.otRate;
-
-                  await storage
-                      .setAttendance(
-                    date,
-                    Attendance(
-                      status: status,
-                      hours:
-                          status == 'absent' ||
-                                  status ==
-                                      'holiday'
-                              ? 0
-                              : hours,
-                      otHours: ot,
-                      otRate: rate,
-                    ),
-                  );
-
-                  if (context.mounted) {
-                    Navigator.pop(
-                      context,
-                    );
-                  }
-                },
-                child:
-                    const Text('Save'),
-              ),
-            ],
-          );
-        },
-      );
-    },
-  );
+    case DayStatus.none:
+      return Colors.white;
+  }
 }
 
-Future<void> showSettingsDialog(
-  BuildContext context,
-  LocalStorage storage,
-  DateTime month,
-) async {
-  final settings =
-      storage.getSettings(
-    month.year,
-    month.month,
-  );
+Color dayBorder(DayStatus status) {
+  switch (status) {
+    case DayStatus.present:
+      return const Color(0xFF9DC8DF);
 
-  final salary =
-      TextEditingController(
-    text: fmt(settings.salary),
-  );
+    case DayStatus.absent:
+      return const Color(0xFFF1A5AA);
 
-  final daily =
-      TextEditingController(
-    text: fmt(settings.dailyWage),
-  );
+    case DayStatus.half:
+      return const Color(0xFFE9B76D);
 
-  final normal =
-      TextEditingController(
-    text: fmt(settings.normalHours),
-  );
+    case DayStatus.holiday:
+      return border;
 
-  final ot =
-      TextEditingController(
-    text: fmt(settings.otRate),
-  );
-
-  final advance =
-      TextEditingController(
-    text: fmt(settings.advance),
-  );
-
-  final deduction =
-      TextEditingController(
-    text: fmt(settings.deduction),
-  );
-
-  await showDialog(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        title: Text(
-          '${months[month.month - 1]} ${month.year}',
-        ),
-        content:
-            SingleChildScrollView(
-          child: Column(
-            children: [
-              settingField(
-                salary,
-                'Monthly Salary',
-              ),
-              settingField(
-                daily,
-                'Daily Wage',
-              ),
-              settingField(
-                normal,
-                'Normal Working Hours',
-              ),
-              settingField(
-                ot,
-                'OT Rate / hour',
-              ),
-              settingField(
-                advance,
-                'Advance',
-              ),
-              settingField(
-                deduction,
-                'Deduction',
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(
-                context,
-              );
-            },
-            child:
-                const Text('Cancel'),
-          ),
-
-          FilledButton(
-            onPressed: () async {
-              await storage
-                  .setSettings(
-                month.year,
-                month.month,
-                MonthSettings(
-                  salary:
-                      double.tryParse(
-                            salary.text,
-                          ) ??
-                          0,
-                  dailyWage:
-                      double.tryParse(
-                            daily.text,
-                          ) ??
-                          0,
-                  normalHours:
-                      double.tryParse(
-                            normal.text,
-                          ) ??
-                          8,
-                  otRate:
-                      double.tryParse(
-                            ot.text,
-                          ) ??
-                          0,
-                  advance:
-                      double.tryParse(
-                            advance.text,
-                          ) ??
-                          0,
-                  deduction:
-                      double.tryParse(
-                            deduction.text,
-                          ) ??
-                          0,
-                ),
-              );
-
-              if (context.mounted) {
-                Navigator.pop(
-                  context,
-                );
-              }
-            },
-            child:
-                const Text('Save'),
-          ),
-        ],
-      );
-    },
-  );
+    case DayStatus.none:
+      return border;
+  }
 }
 
-Widget settingField(
-  TextEditingController controller,
-  String label,
-) {
-  return Padding(
-    padding:
-        const EdgeInsets.only(
-      bottom: 10,
-    ),
-    child: TextField(
-      controller: controller,
-      keyboardType:
-          const TextInputType
-              .numberWithOptions(
-        decimal: true,
-      ),
-      decoration:
-          InputDecoration(
-        labelText: label,
-        border:
-            const OutlineInputBorder(),
-      ),
-    ),
-  );
+Color dayColor(DayStatus status) {
+  switch (status) {
+    case DayStatus.present:
+      return primary;
+
+    case DayStatus.absent:
+      return red;
+
+    case DayStatus.half:
+      return orange;
+
+    case DayStatus.holiday:
+      return textGrey;
+
+    case DayStatus.none:
+      return textDark;
+  }
 }
 
-void showMessage(
-  BuildContext context,
-  String title,
-  String message,
-) {
-  showDialog(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        title: Text(title),
-        content: Text(
-          message,
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight:
-                FontWeight.bold,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(
-                context,
-              );
-            },
-            child:
-                const Text('OK'),
-          ),
-        ],
-      );
-    },
-  );
+String monthName(DateTime d) {
+  const names = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  return '${names[d.month - 1]} ${d.year}';
+}
+
+String formatDate(DateTime d) {
+  const week = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  return '${week[d.weekday - 1]}, '
+      '${d.day} ${months[d.month - 1]} '
+      '${d.year}';
+}
+
+String fmt(double n) {
+  if (n == n.roundToDouble()) {
+    return n.toInt().toString();
+  }
+
+  return n.toStringAsFixed(1);
+}
+
+String money(double n) {
+  return '₹${n.round()}';
+}
+
+double number(
+  TextEditingController c, [
+  double fallback = 0,
+]) {
+  return double.tryParse(
+        c.text.trim(),
+      ) ??
+      fallback;
 }
