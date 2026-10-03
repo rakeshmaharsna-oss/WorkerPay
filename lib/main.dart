@@ -1343,10 +1343,10 @@ class PayRow extends StatelessWidget {
           value,
           style: TextStyle(
             color: green
-                ? green
-                : redText
-                    ? red
-                    : primary,
+    ? const Color(0xFF16A34A)
+    : redText
+        ? red
+        : primary,
             fontSize: 18,
             fontWeight: FontWeight.w700,
           ),
