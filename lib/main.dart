@@ -219,6 +219,7 @@ class Storage {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+    MobileAds.instance.initialize();
   runApp(const WorkerPayApp());
 }
 
