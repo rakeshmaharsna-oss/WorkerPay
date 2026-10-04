@@ -468,9 +468,6 @@ class _HomePageState extends State<HomePage> {
     ),
   ],
 ),
-),
-}
-}
 
 class MonthPage extends StatelessWidget {
   final DateTime month;
