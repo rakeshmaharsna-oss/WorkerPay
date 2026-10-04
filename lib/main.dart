@@ -435,34 +435,39 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: pageIndex,
-        backgroundColor: Colors.white,
-        indicatorColor: primary.withOpacity(.12),
-        onDestinationSelected: (value) {
-          setState(() {
-            pageIndex = value;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month),
-            label: 'Month',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon: Icon(Icons.grid_view),
-            label: 'Year',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.analytics_outlined),
-            selectedIcon: Icon(Icons.analytics),
-            label: 'Summary',
-          ),
-        ],
-      ),
-    );
+      bottomNavigationBar: Column(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    const WorkerPayBannerAd(),
+    NavigationBar(
+      selectedIndex: pageIndex,
+      backgroundColor: Colors.white,
+      indicatorColor: primary.withOpacity(.12),
+      onDestinationSelected: (value) {
+        setState(() {
+          pageIndex = value;
+        });
+      },
+      destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.calendar_month_outlined),
+          selectedIcon: Icon(Icons.calendar_month),
+          label: 'Month',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.grid_view_outlined),
+          selectedIcon: Icon(Icons.grid_view),
+          label: 'Year',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.analytics_outlined),
+          selectedIcon: Icon(Icons.analytics),
+          label: 'Summary',
+        ),
+      ],
+    ),
+  ],
+),
   }
 }
 
@@ -2706,4 +2711,59 @@ String money(double value) {
   }
 
   return '${negative ? '-' : ''}₹$formatted';
+}
+class WorkerPayBannerAd extends StatefulWidget {
+  const WorkerPayBannerAd({super.key});
+
+  @override
+  State<WorkerPayBannerAd> createState() => _WorkerPayBannerAdState();
+}
+
+class _WorkerPayBannerAdState extends State<WorkerPayBannerAd> {
+  late final BannerAd _bannerAd;
+  bool _isAdLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111',
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          if (mounted) {
+            setState(() {
+              _isAdLoaded = true;
+            });
+          }
+        },
+        onAdFailedToLoad: (ad, error) {
+          ad.dispose();
+        },
+      ),
+    );
+
+    _bannerAd.load();
+  }
+
+  @override
+  void dispose() {
+    _bannerAd.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isAdLoaded) {
+      return const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      width: _bannerAd.size.width.toDouble(),
+      height: _bannerAd.size.height.toDouble(),
+      child: AdWidget(ad: _bannerAd),
+    );
+  }
 }
