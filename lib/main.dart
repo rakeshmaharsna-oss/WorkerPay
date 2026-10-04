@@ -435,39 +435,42 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
-      bottomNavigationBar: Column(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    const WorkerPayBannerAd(),
-    NavigationBar(
-      selectedIndex: pageIndex,
-      backgroundColor: Colors.white,
-      indicatorColor: primary.withOpacity(.12),
-      onDestinationSelected: (value) {
-        setState(() {
-          pageIndex = value;
-        });
-      },
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.calendar_month_outlined),
-          selectedIcon: Icon(Icons.calendar_month),
-          label: 'Month',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.grid_view_outlined),
-          selectedIcon: Icon(Icons.grid_view),
-          label: 'Year',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.analytics_outlined),
-          selectedIcon: Icon(Icons.analytics),
-          label: 'Summary',
-        ),
-      ],
-    ),
-  ],
-),
+            bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const WorkerPayBannerAd(),
+          NavigationBar(
+            selectedIndex: pageIndex,
+            backgroundColor: Colors.white,
+            indicatorColor: primary.withOpacity(.12),
+            onDestinationSelected: (value) {
+              setState(() {
+                pageIndex = value;
+              });
+            },
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.calendar_month_outlined),
+                selectedIcon: Icon(Icons.calendar_month),
+                label: 'Month',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.grid_view_outlined),
+                selectedIcon: Icon(Icons.grid_view),
+                label: 'Year',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.analytics_outlined),
+                selectedIcon: Icon(Icons.analytics),
+                label: 'Summary',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class MonthPage extends StatelessWidget {
   final DateTime month;
