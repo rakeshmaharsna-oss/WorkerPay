@@ -1,57 +1,38 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 const Color primary = Color(0xFF005086);
 const Color primaryLight = Color(0xFFE8F4FB);
 const Color bg = Color(0xFFF2F8FD);
+const Color card = Colors.white;
 const Color textDark = Color(0xFF0B1722);
 const Color textGrey = Color(0xFF65717C);
 const Color border = Color(0xFFD6E0E8);
+const Color presentBlue = Color(0xFF005086);
 const Color absentRed = Color(0xFFDC2626);
 const Color halfOrange = Color(0xFFD97706);
 const Color otGreen = Color(0xFF16A34A);
 
-const String testBannerId = 'ca-app-pub-3940256099942544/6300978111';
-
-enum DayStatus {
-  none,
-  present,
-  absent,
-  half,
-  holiday,
-}
+enum DayStatus { none, present, absent, half, holiday }
 
 class Attendance {
   DayStatus status;
   double hours;
   double ot;
+  Attendance({this.status = DayStatus.none, this.hours = 0, this.ot = 0});
 
-  Attendance({
-    this.status = DayStatus.none,
-    this.hours = 0,
-    this.ot = 0,
-  });
+  Map<String, dynamic> toJson() => {
+        'status': status.index,
+        'hours': hours,
+        'ot': ot,
+      };
 
-  Map<String, dynamic> toJson() {
-    return {
-      'status': status.index,
-      'hours': hours,
-      'ot': ot,
-    };
-  }
-
-  factory Attendance.fromJson(Map<String, dynamic> json) {
-    final index = (json['status'] ?? 0).clamp(0, 4);
-
-    return Attendance(
-      status: DayStatus.values[index],
-      hours: (json['hours'] ?? 0).toDouble(),
-      ot: (json['ot'] ?? 0).toDouble(),
-    );
-  }
+  factory Attendance.fromJson(Map<String, dynamic> j) => Attendance(
+        status: DayStatus.values[(j['status'] ?? 0).clamp(0, 4)],
+        hours: (j['hours'] ?? 0).toDouble(),
+        ot: (j['ot'] ?? 0).toDouble(),
+      );
 }
 
 class Settings {
@@ -75,100 +56,61 @@ class Settings {
     this.deduction = 0,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'mode': mode,
-      'monthlySalary': monthlySalary,
-      'workingDays': workingDays,
-      'normalHours': normalHours,
-      'otRate': otRate,
-      'dailyWage': dailyWage,
-      'advance': advance,
-      'deduction': deduction,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+        'mode': mode,
+        'monthlySalary': monthlySalary,
+        'workingDays': workingDays,
+        'normalHours': normalHours,
+        'otRate': otRate,
+        'dailyWage': dailyWage,
+        'advance': advance,
+        'deduction': deduction,
+      };
 
-  factory Settings.fromJson(Map<String, dynamic> json) {
-    return Settings(
-      mode: json['mode'] ?? 'fixed',
-      monthlySalary: (json['monthlySalary'] ?? 15000).toDouble(),
-      workingDays: (json['workingDays'] ?? 26).toDouble(),
-      normalHours: (json['normalHours'] ?? 8).toDouble(),
-      otRate: (json['otRate'] ?? 100).toDouble(),
-      dailyWage: (json['dailyWage'] ?? 0).toDouble(),
-      advance: (json['advance'] ?? 0).toDouble(),
-      deduction: (json['deduction'] ?? 0).toDouble(),
-    );
-  }
+  factory Settings.fromJson(Map<String, dynamic> j) => Settings(
+        mode: j['mode'] ?? 'fixed',
+        monthlySalary: (j['monthlySalary'] ?? 15000).toDouble(),
+        workingDays: (j['workingDays'] ?? 26).toDouble(),
+        normalHours: (j['normalHours'] ?? 8).toDouble(),
+        otRate: (j['otRate'] ?? 100).toDouble(),
+        dailyWage: (j['dailyWage'] ?? 0).toDouble(),
+        advance: (j['advance'] ?? 0).toDouble(),
+        deduction: (j['deduction'] ?? 0).toDouble(),
+      );
 }
 
 class Store {
-  static const String attendanceKey = 'workerpay_attendance';
-  static const String settingsKey = 'workerpay_settings';
+  static const _att = 'workerpay_attendance_v3';
+  static const _set = 'workerpay_settings_v3';
 
   static Future<Map<String, Attendance>> loadAttendance() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(attendanceKey);
-
-    if (raw == null) {
-      return {};
-    }
-
-    final data = Map<String, dynamic>.from(jsonDecode(raw));
-
-    return data.map(
-      (key, value) => MapEntry(
-        key,
-        Attendance.fromJson(
-          Map<String, dynamic>.from(value),
-        ),
-      ),
-    );
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString(_att);
+    if (raw == null) return {};
+    final m = Map<String, dynamic>.from(jsonDecode(raw));
+    return m.map((k, v) => MapEntry(k, Attendance.fromJson(Map<String, dynamic>.from(v))));
   }
 
   static Future<Settings> loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(settingsKey);
-
-    if (raw == null) {
-      return Settings();
-    }
-
-    return Settings.fromJson(
-      Map<String, dynamic>.from(jsonDecode(raw)),
-    );
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString(_set);
+    if (raw == null) return Settings();
+    return Settings.fromJson(Map<String, dynamic>.from(jsonDecode(raw)));
   }
 
-  static Future<void> saveAttendance(
-    Map<String, Attendance> attendance,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setString(
-      attendanceKey,
-      jsonEncode(
-        attendance.map(
-          (key, value) => MapEntry(key, value.toJson()),
-        ),
-      ),
-    );
+  static Future<void> saveAttendance(Map<String, Attendance> a) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_att, jsonEncode(a.map((k, v) => MapEntry(k, v.toJson()))));
   }
 
-  static Future<void> saveSettings(Settings settings) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    await prefs.setString(
-      settingsKey,
-      jsonEncode(settings.toJson()),
-    );
+  static Future<void> saveSettings(Settings s) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_set, jsonEncode(s.toJson()));
   }
 }
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  MobileAds.instance.initialize();
-
   runApp(const WorkerPayApp());
 }
 
@@ -183,9 +125,8 @@ class WorkerPayApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: bg,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: primary,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: primary),
+        fontFamily: 'sans',
       ),
       home: const MainScreen(),
     );
@@ -194,129 +135,59 @@ class WorkerPayApp extends StatelessWidget {
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
-
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
   int tab = 0;
-
-  DateTime month = DateTime(
-    DateTime.now().year,
-    DateTime.now().month,
-  );
-
+  DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   Map<String, Attendance> attendance = {};
-
   Settings settings = Settings();
-
-  bool loading = true;
 
   @override
   void initState() {
     super.initState();
-    loadData();
+    _load();
   }
 
-  Future<void> loadData() async {
-    final loadedAttendance = await Store.loadAttendance();
-    final loadedSettings = await Store.loadSettings();
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      attendance = loadedAttendance;
-      settings = loadedSettings;
-      loading = false;
-    });
+  Future<void> _load() async {
+    attendance = await Store.loadAttendance();
+    settings = await Store.loadSettings();
+    if (mounted) setState(() {});
   }
 
-  String keyFor(DateTime date) {
-    return '${date.year}-${date.month}-${date.day}';
-  }
+  String keyFor(DateTime d) => '${d.year}-${d.month}-${d.day}';
 
-  Attendance? getDay(DateTime date) {
-    return attendance[keyFor(date)];
-  }
+  Attendance? getDay(DateTime d) => attendance[keyFor(d)];
 
-  void changeMonth(int value) {
-    setState(() {
-      month = DateTime(
-        month.year,
-        month.month + value,
-      );
-    });
-  }
-
-  Future<void> editDay(DateTime date) async {
+  Future<void> editDay(DateTime d) async {
     final result = await showDialog<Attendance>(
       context: context,
       barrierDismissible: false,
-      builder: (_) {
-        return AttendanceDialog(
-          date: date,
-          initial: getDay(date) ??
-              Attendance(
-                status: DayStatus.present,
-                hours: settings.normalHours,
-              ),
-          defaultHours: settings.normalHours,
-        );
-      },
+      builder: (_) => AttendanceDialog(
+        date: d,
+        initial: getDay(d) ?? Attendance(
+          status: DayStatus.present,
+          hours: settings.normalHours,
+        ),
+        defaultHours: settings.normalHours,
+      ),
     );
 
-    if (result == null) {
-      return;
-    }
-
-    attendance[keyFor(date)] = result;
-
-    await Store.saveAttendance(attendance);
-
-    if (mounted) {
+    if (result != null) {
+      attendance[keyFor(d)] = result;
+      await Store.saveAttendance(attendance);
       setState(() {});
     }
   }
 
-  Future<void> openSettings() async {
-    final result = await showModalBottomSheet<Settings>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) {
-        return SettingsSheet(
-          initial: settings,
-          month: month,
-        );
-      },
-    );
-
-    if (result == null) {
-      return;
-    }
-
-    settings = result;
-
-    await Store.saveSettings(settings);
-
-    if (mounted) {
-      setState(() {});
-    }
+  void changeMonth(int delta) {
+    setState(() => month = DateTime(month.year, month.month + delta));
   }
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
     return Scaffold(
       body: SafeArea(
         child: IndexedStack(
@@ -327,148 +198,77 @@ class _MainScreenState extends State<MainScreen> {
               attendance: attendance,
               settings: settings,
               onDayTap: editDay,
-              onPrevious: () => changeMonth(-1),
+              onPrev: () => changeMonth(-1),
               onNext: () => changeMonth(1),
-              onSettings: openSettings,
+              onOpenHours: () => _openSettings(),
+              onOpenOt: () => _openSettings(),
+              onOpenPayment: () => _openSettings(),
             ),
             YearScreen(
               year: month.year,
               attendance: attendance,
               onDayTap: editDay,
-              onPrevious: () {
-                setState(() {
-                  month = DateTime(
-                    month.year - 1,
-                    month.month,
-                  );
-                });
-              },
-              onNext: () {
-                setState(() {
-                  month = DateTime(
-                    month.year + 1,
-                    month.month,
-                  );
-                });
-              },
+              onPrev: () => setState(
+                () => month = DateTime(month.year - 1, month.month),
+              ),
+              onNext: () => setState(
+                () => month = DateTime(month.year + 1, month.month),
+              ),
             ),
             SummaryScreen(
               month: month,
               attendance: attendance,
               settings: settings,
-              onPrevious: () => changeMonth(-1),
+              onPrev: () => changeMonth(-1),
               onNext: () => changeMonth(1),
-              onSettings: openSettings,
+              onEditRates: _openSettings,
             ),
           ],
         ),
       ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const WorkerPayBanner(),
-          NavigationBar(
-            height: 78,
-            backgroundColor: const Color(0xFFEFF1F6),
-            indicatorColor: const Color(0xFFD6E8FB),
-            selectedIndex: tab,
-            onDestinationSelected: (value) {
-              setState(() {
-                tab = value;
-              });
-            },
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.calendar_month_outlined),
-                selectedIcon: Icon(Icons.calendar_month),
-                label: 'Month',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.calendar_today_outlined),
-                selectedIcon: Icon(Icons.calendar_today),
-                label: 'Year',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.currency_rupee_outlined),
-                selectedIcon: Icon(Icons.currency_rupee),
-                label: 'Summary',
-              ),
-            ],
+      bottomNavigationBar: NavigationBar(
+        height: 78,
+        backgroundColor: const Color(0xFFEFF1F6),
+        indicatorColor: const Color(0xFFD6E8FB),
+        selectedIndex: tab,
+        onDestinationSelected: (i) => setState(() => tab = i),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
+            label: 'Month',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today),
+            label: 'Year',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.currency_rupee_outlined),
+            selectedIcon: Icon(Icons.currency_rupee),
+            label: 'Summary',
           ),
         ],
       ),
     );
   }
-}
 
-class WorkerPayBanner extends StatefulWidget {
-  const WorkerPayBanner({super.key});
-
-  @override
-  State<WorkerPayBanner> createState() => _WorkerPayBannerState();
-}
-
-class _WorkerPayBannerState extends State<WorkerPayBanner> {
-  BannerAd? banner;
-  bool loaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    loadBanner();
-  }
-
-  void loadBanner() {
-    final ad = BannerAd(
-      adUnitId: testBannerId,
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          if (!mounted) {
-            ad.dispose();
-            return;
-          }
-
-          setState(() {
-            banner = ad as BannerAd;
-            loaded = true;
-          });
-        },
-        onAdFailedToLoad: (ad, error) {
-          ad.dispose();
-
-          if (mounted) {
-            setState(() {
-              loaded = false;
-            });
-          }
-        },
+  Future<void> _openSettings() async {
+    final s = await showModalBottomSheet<Settings>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SettingsSheet(
+        initial: settings,
+        month: month,
       ),
     );
 
-    ad.load();
-  }
-
-  @override
-  void dispose() {
-    banner?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!loaded || banner == null) {
-      return const SizedBox.shrink();
+    if (s != null) {
+      settings = s;
+      await Store.saveSettings(settings);
+      setState(() {});
     }
-
-    return SizedBox(
-      width: banner!.size.width.toDouble(),
-      height: banner!.size.height.toDouble(),
-      child: AdWidget(
-        ad: banner!,
-      ),
-    );
   }
 }
 
@@ -476,11 +276,12 @@ class MonthScreen extends StatelessWidget {
   final DateTime month;
   final Map<String, Attendance> attendance;
   final Settings settings;
-
   final Future<void> Function(DateTime) onDayTap;
-  final VoidCallback onPrevious;
+  final VoidCallback onPrev;
   final VoidCallback onNext;
-  final VoidCallback onSettings;
+  final VoidCallback onOpenHours;
+  final VoidCallback onOpenOt;
+  final VoidCallback onOpenPayment;
 
   const MonthScreen({
     super.key,
@@ -488,26 +289,23 @@ class MonthScreen extends StatelessWidget {
     required this.attendance,
     required this.settings,
     required this.onDayTap,
-    required this.onPrevious,
+    required this.onPrev,
     required this.onNext,
-    required this.onSettings,
+    required this.onOpenHours,
+    required this.onOpenOt,
+    required this.onOpenPayment,
   });
+
+  Attendance? day(DateTime d) =>
+      attendance['${d.year}-${d.month}-${d.day}'];
 
   @override
   Widget build(BuildContext context) {
-    final counts = monthCounts(
-      month,
-      attendance,
-    );
+    final counts = monthCounts(month, attendance);
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        18,
-        22,
-        18,
-        18,
-      ),
+      padding: const EdgeInsets.fromLTRB(18, 22, 18, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -524,24 +322,19 @@ class MonthScreen extends StatelessWidget {
                 ),
               ),
               IconButton(
-                onPressed: onPrevious,
-                icon: const Icon(
-                  Icons.chevron_left,
-                  size: 34,
-                ),
+                onPressed: onPrev,
+                icon: const Icon(Icons.chevron_left, size: 34),
               ),
               Text(
                 monthName(month),
                 style: const TextStyle(
                   fontSize: 21,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
               IconButton(
                 onPressed: onNext,
-                icon: const Icon(
-                  Icons.chevron_right,
-                  size: 34,
-                ),
+                icon: const Icon(Icons.chevron_right, size: 34),
               ),
             ],
           ),
@@ -553,7 +346,7 @@ class MonthScreen extends StatelessWidget {
                   icon: Icons.access_time,
                   label: 'Hours',
                   color: primary,
-                  onTap: onSettings,
+                  onTap: onOpenHours,
                 ),
               ),
               const SizedBox(width: 10),
@@ -562,7 +355,7 @@ class MonthScreen extends StatelessWidget {
                   icon: Icons.more_time,
                   label: 'OT',
                   color: otGreen,
-                  onTap: onSettings,
+                  onTap: onOpenOt,
                 ),
               ),
               const SizedBox(width: 10),
@@ -571,7 +364,7 @@ class MonthScreen extends StatelessWidget {
                   icon: Icons.currency_rupee,
                   label: 'Payment',
                   color: primary,
-                  onTap: onSettings,
+                  onTap: onOpenPayment,
                 ),
               ),
             ],
@@ -611,11 +404,7 @@ class ActionPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
       onPressed: onTap,
-      icon: Icon(
-        icon,
-        color: color,
-        size: 28,
-      ),
+      icon: Icon(icon, color: color, size: 28),
       label: Text(
         label,
         maxLines: 1,
@@ -652,48 +441,38 @@ class CalendarCard extends StatelessWidget {
     required this.onDayTap,
   });
 
-  Attendance? day(DateTime date) {
-    return attendance[
-        '${date.year}-${date.month}-${date.day}'];
-  }
+  Attendance? day(DateTime d) =>
+      attendance['${d.year}-${d.month}-${d.day}'];
 
   @override
   Widget build(BuildContext context) {
-    final first = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
-
+    final first = DateTime(month.year, month.month, 1);
     final start = first.weekday % 7;
-
     final days = DateTime(
       month.year,
       month.month + 1,
       0,
     ).day;
 
-    final cells = <DateTime?>[
-      ...List<DateTime?>.filled(
-        start,
-        null,
-      ),
-      ...List.generate(
-        days,
-        (index) => DateTime(
-          month.year,
-          month.month,
-          index + 1,
-        ),
-      ),
-    ];
+    final cells = List<DateTime?>.filled(
+          start,
+          null,
+        ) +
+        List.generate(
+          days,
+          (i) => DateTime(
+            month.year,
+            month.month,
+            i + 1,
+          ),
+        );
 
     while (cells.length % 7 != 0) {
       cells.add(null);
     }
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -721,7 +500,7 @@ class CalendarCard extends StatelessWidget {
                         e,
                         style: TextStyle(
                           color: textGrey,
-                          fontSize: 12,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -742,29 +521,32 @@ class CalendarCard extends StatelessWidget {
               crossAxisSpacing: 8,
               childAspectRatio: .88,
             ),
-            itemBuilder: (_, index) {
-              final date = cells[index];
+            itemBuilder: (_, i) {
+              final d = cells[i];
 
-              if (date == null) {
+              if (d == null) {
                 return const SizedBox();
               }
 
-              final a = day(date);
+              final a = day(d);
+              final selected =
+                  a != null && a.status != DayStatus.none;
 
               return InkWell(
                 borderRadius: BorderRadius.circular(17),
-                onTap: () => onDayTap(date),
+                onTap: () => onDayTap(d),
                 child: Container(
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
-                    color: a == null
-                        ? Colors.white
-                        : dayFill(a.status),
+                    color: selected
+                        ? dayFill(a!.status)
+                        : Colors.white,
                     borderRadius: BorderRadius.circular(17),
                     border: Border.all(
-                      color: a == null
-                          ? border
-                          : dayBorder(a.status),
+                      color: selected
+                          ? dayBorder(a!.status)
+                          : border,
+                      width: selected ? 1.6 : 1.2,
                     ),
                   ),
                   child: Column(
@@ -772,13 +554,14 @@ class CalendarCard extends StatelessWidget {
                         CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${date.day}',
+                        '${d.day}',
                         style: TextStyle(
                           fontSize: 17,
-                          color: date.weekday ==
+                          color: d.weekday ==
                                   DateTime.sunday
                               ? absentRed
                               : textDark,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       const Spacer(),
@@ -787,7 +570,7 @@ class CalendarCard extends StatelessWidget {
                           '${fmt(a.hours)}H',
                           style: const TextStyle(
                             color: primary,
-                            fontSize: 11,
+                            fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -796,7 +579,7 @@ class CalendarCard extends StatelessWidget {
                           'OT ${fmt(a.ot)}H',
                           style: const TextStyle(
                             color: otGreen,
-                            fontSize: 10,
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -811,7 +594,6 @@ class CalendarCard extends StatelessWidget {
     );
   }
 }
-
 class SummaryMiniCard extends StatelessWidget {
   final DateTime month;
   final Map<String, double> counts;
@@ -825,14 +607,13 @@ class SummaryMiniCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 25, 24, 25),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             '${monthName(month)} Summary',
@@ -886,313 +667,73 @@ class SummaryMiniCard extends StatelessWidget {
 
 class StatChip extends StatelessWidget {
   final String text;
-  final Color background;
-  final Color foreground;
+  final Color bg;
+  final Color fg;
 
   const StatChip(
     this.text,
-    this.background,
-    this.foreground, {
+    this.bg,
+    this.fg, {
     super.key,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 13,
-      ),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: foreground,
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 13,
         ),
-      ),
-    );
-  }
-}
-
-class YearScreen extends StatelessWidget {
-  final int year;
-  final Map<String, Attendance> attendance;
-  final Future<void> Function(DateTime) onDayTap;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
-
-  const YearScreen({
-    super.key,
-    required this.year,
-    required this.attendance,
-    required this.onDayTap,
-    required this.onPrevious,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(
-        18,
-        22,
-        18,
-        24,
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Year Calendar',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: onPrevious,
-                icon: const Icon(
-                  Icons.chevron_left,
-                  size: 32,
-                ),
-              ),
-              Text(
-                '$year',
-                style: const TextStyle(
-                  fontSize: 21,
-                ),
-              ),
-              IconButton(
-                onPressed: onNext,
-                icon: const Icon(
-                  Icons.chevron_right,
-                  size: 32,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          for (int month = 1; month <= 12; month++)
-            Padding(
-              padding: const EdgeInsets.only(
-                bottom: 12,
-              ),
-              child: YearMonthCard(
-                year: year,
-                month: month,
-                attendance: attendance,
-                onDayTap: onDayTap,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class YearMonthCard extends StatelessWidget {
-  final int year;
-  final int month;
-  final Map<String, Attendance> attendance;
-  final Future<void> Function(DateTime) onDayTap;
-
-  const YearMonthCard({
-    super.key,
-    required this.year,
-    required this.month,
-    required this.attendance,
-    required this.onDayTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final first = DateTime(
-      year,
-      month,
-      1,
-    );
-
-    final start = first.weekday % 7;
-
-    final days = DateTime(
-      year,
-      month + 1,
-      0,
-    ).day;
-
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: border,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(18),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Text(
-            monthName(first),
-            style: const TextStyle(
-              color: primary,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: fg,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: const [
-              'S',
-              'M',
-              'T',
-              'W',
-              'T',
-              'F',
-              'S',
-            ]
-                .map(
-                  (e) => Expanded(
-                    child: Center(
-                      child: Text(
-                        e,
-                        style: TextStyle(
-                          color: textGrey,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
-          ),
-          const SizedBox(height: 5),
-          GridView.builder(
-            shrinkWrap: true,
-            physics:
-                const NeverScrollableScrollPhysics(),
-            itemCount: start + days,
-            gridDelegate:
-                const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              childAspectRatio: 1.25,
-            ),
-            itemBuilder: (_, index) {
-              if (index < start) {
-                return const SizedBox();
-              }
-
-              final date = DateTime(
-                year,
-                month,
-                index - start + 1,
-              );
-
-              final a = attendance[
-                  '${date.year}-${date.month}-${date.day}'];
-
-              return InkWell(
-                onTap: () => onDayTap(date),
-                child: Center(
-                  child: Text(
-                    '${date.day}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight:
-                          a != null &&
-                                  a.status !=
-                                      DayStatus.none
-                              ? FontWeight.w800
-                              : FontWeight.w400,
-                      color: a == null
-                          ? date.weekday ==
-                                  DateTime.sunday
-                              ? absentRed
-                              : textDark
-                          : dayText(a.status),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
 }
 
 class SummaryScreen extends StatelessWidget {
   final DateTime month;
   final Map<String, Attendance> attendance;
   final Settings settings;
-  final VoidCallback onPrevious;
+  final VoidCallback onPrev;
   final VoidCallback onNext;
-  final VoidCallback onSettings;
+  final VoidCallback onEditRates;
 
   const SummaryScreen({
     super.key,
     required this.month,
     required this.attendance,
     required this.settings,
-    required this.onPrevious,
+    required this.onPrev,
     required this.onNext,
-    required this.onSettings,
+    required this.onEditRates,
   });
 
   @override
   Widget build(BuildContext context) {
-    final counts = monthCounts(
-      month,
-      attendance,
-    );
+    final c = monthCounts(month, attendance);
 
-    final workingDays =
-        counts['present']! +
-        counts['half']! * 0.5;
+    final days =
+        c['present']! + c['half']! * .5;
 
-    double dailyRate;
+    final daily = settings.mode == 'daily'
+        ? settings.dailyWage
+        : settings.monthlySalary /
+            (settings.workingDays <= 0
+                ? 26
+                : settings.workingDays);
 
-    if (settings.mode == 'daily') {
-      dailyRate = settings.dailyWage;
-    } else if (settings.mode == 'month') {
-      final calendarDays = DateTime(
-        month.year,
-        month.month + 1,
-        0,
-      ).day;
-
-      dailyRate =
-          settings.monthlySalary /
-          calendarDays;
-    } else {
-      dailyRate =
-          settings.monthlySalary /
-          (settings.workingDays <= 0
-              ? 26
-              : settings.workingDays);
-    }
-
-    final basicPayment =
-        workingDays * dailyRate;
-
-    final otAmount =
-        counts['ot']! * settings.otRate;
-
+    final basic = days * daily;
+    final ot = c['ot']! * settings.otRate;
     final total =
-        basicPayment +
-        otAmount -
-        settings.advance -
-        settings.deduction;
+        basic + ot - settings.advance - settings.deduction;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
@@ -1215,18 +756,23 @@ class SummaryScreen extends StatelessWidget {
                 ),
               ),
               IconButton(
-                onPressed: onPrevious,
+                onPressed: onPrev,
                 icon: const Icon(
                   Icons.chevron_left,
+                  size: 32,
                 ),
               ),
               Text(
                 monthName(month),
+                style: const TextStyle(
+                  fontSize: 18,
+                ),
               ),
               IconButton(
                 onPressed: onNext,
                 icon: const Icon(
                   Icons.chevron_right,
+                  size: 32,
                 ),
               ),
             ],
@@ -1241,7 +787,7 @@ class SummaryScreen extends StatelessWidget {
                   children: [
                     Expanded(
                       child: BigStat(
-                        '${counts['present']!.toInt()} Days',
+                        '${c['present']!.toInt()} Days',
                         'Present',
                         primaryLight,
                         primary,
@@ -1250,7 +796,7 @@ class SummaryScreen extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: BigStat(
-                        '${counts['absent']!.toInt()} Days',
+                        '${c['absent']!.toInt()} Days',
                         'Absent',
                         const Color(0xFFFFEEEE),
                         absentRed,
@@ -1259,10 +805,19 @@ class SummaryScreen extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: BigStat(
-                        '${counts['half']!.toInt()} Days',
+                        '${c['half']!.toInt()} Days',
                         'Half Day',
                         const Color(0xFFFFF7D9),
                         halfOrange,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: BigStat(
+                        '${c['holiday']!.toInt()} Days',
+                        'Leave / Holiday',
+                        const Color(0xFFF0F2F4),
+                        textGrey,
                       ),
                     ),
                   ],
@@ -1273,14 +828,14 @@ class SummaryScreen extends StatelessWidget {
                     Expanded(
                       child: InfoBox(
                         'Working Hours',
-                        '${fmt(counts['hours']!)} H',
+                        '${fmt(c['hours']!)} H',
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: InfoBox(
-                        'Overtime',
-                        '${fmt(counts['ot']!)} H',
+                        'Overtime (OT) Hours',
+                        '${fmt(c['ot']!)} H',
                         green: true,
                       ),
                     ),
@@ -1294,28 +849,44 @@ class SummaryScreen extends StatelessWidget {
             title: 'PAYMENT CALCULATION',
             icon: Icons.currency_rupee,
             trailing: TextButton.icon(
-              onPressed: onSettings,
+              onPressed: onEditRates,
               icon: const Icon(
                 Icons.edit,
                 size: 16,
               ),
-              label: const Text(
-                'Edit Rates',
-              ),
+              label: const Text('Edit Rates'),
             ),
             child: Column(
               children: [
                 PaymentRow(
-                  'Monthly Salary',
+                  'Monthly Salary Base',
                   money(settings.monthlySalary),
                 ),
-                const SizedBox(height: 12),
+                Text(
+                  settings.mode == 'fixed'
+                      ? 'Formula: ${settings.workingDays.toInt()} fixed days (${money(daily)}/day)'
+                      : settings.mode == 'month'
+                          ? 'Formula: monthly salary / calendar days'
+                          : 'Formula: direct daily wage',
+                  style: const TextStyle(
+                    color: Color(0xFFB0B5BA),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 20),
                 PaymentRow(
                   'Basic Payment',
-                  money(basicPayment),
+                  money(basic),
                   bold: true,
                 ),
-                const SizedBox(height: 12),
+                Text(
+                  'Present (${c['present']!.toInt()}) + Half Days (${c['half']!.toInt()} × 0.5) = ${days.toStringAsFixed(1)} days',
+                  style: const TextStyle(
+                    color: Color(0xFFB0B5BA),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 18),
                 PaymentRow(
                   'OT Rate',
                   '${money(settings.otRate)} / Hour',
@@ -1324,9 +895,16 @@ class SummaryScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 PaymentRow(
                   'OT Amount',
-                  '+ ${money(otAmount)}',
+                  '+ ${money(ot)}',
                   green: true,
                   bold: true,
+                ),
+                Text(
+                  '${money(settings.otRate)} × ${fmt(c['ot']!)} H',
+                  style: const TextStyle(
+                    color: Color(0xFFB0B5BA),
+                    fontSize: 13,
+                  ),
                 ),
                 if (settings.advance > 0) ...[
                   const SizedBox(height: 12),
@@ -1347,32 +925,46 @@ class SummaryScreen extends StatelessWidget {
                 const SizedBox(height: 22),
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 18,
+                  ),
                   decoration: BoxDecoration(
                     color: primary,
-                    borderRadius:
-                        BorderRadius.circular(17),
+                    borderRadius: BorderRadius.circular(17),
                   ),
                   child: Row(
                     children: [
                       const Expanded(
-                        child: Text(
-                          'Expected Total Payment',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight:
-                                FontWeight.w600,
-                          ),
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Expected Total Payment',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            SizedBox(height: 5),
+                            Text(
+                              'For selected month',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Text(
                         money(total),
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 27,
-                          fontWeight:
-                              FontWeight.w700,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
@@ -1390,52 +982,50 @@ class SummaryScreen extends StatelessWidget {
 class BigStat extends StatelessWidget {
   final String value;
   final String label;
-  final Color background;
-  final Color foreground;
+  final Color bg;
+  final Color fg;
 
   const BigStat(
     this.value,
     this.label,
-    this.background,
-    this.foreground, {
+    this.bg,
+    this.fg, {
     super.key,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        vertical: 16,
-        horizontal: 5,
-      ),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: foreground,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(
+          vertical: 16,
+          horizontal: 6,
+        ),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: fg,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: foreground,
-              fontSize: 11,
+            const SizedBox(height: 6),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: fg,
+                fontSize: 12,
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }
 
 class InfoBox extends StatelessWidget {
@@ -1451,43 +1041,38 @@ class InfoBox extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(
-        color: green
-            ? const Color(0xFFE9FAF0)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: border,
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(17),
+        decoration: BoxDecoration(
+          color: green
+              ? const Color(0xFFE9FAF0)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: border),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              color:
-                  green ? otGreen : textGrey,
-              fontSize: 13,
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: green ? otGreen : textGrey,
+                fontSize: 13,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              color: textDark,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: const TextStyle(
+                color: textDark,
+                fontSize: 21,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }
 
 class PaymentRow extends StatelessWidget {
@@ -1507,36 +1092,34 @@ class PaymentRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: textGrey,
-              fontSize: 16,
-              fontWeight: bold
-                  ? FontWeight.w600
-                  : FontWeight.w400,
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: textGrey,
+                fontSize: 16,
+                fontWeight: bold
+                    ? FontWeight.w600
+                    : FontWeight.w400,
+              ),
             ),
           ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            color: green
-                ? otGreen
-                : red
-                    ? absentRed
-                    : primary,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
+          Text(
+            value,
+            style: TextStyle(
+              color: green
+                  ? otGreen
+                  : red
+                      ? absentRed
+                      : primary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-      ],
-    );
-  }
+        ],
+      );
 }
 
 class SectionCard extends StatelessWidget {
@@ -1554,49 +1137,49 @@ class SectionCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: border,
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.fromLTRB(
+          18,
+          18,
+          18,
+          18,
         ),
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                icon,
-                color: primary,
-                size: 19,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: primary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: .7,
-                    fontSize: 14,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: border),
+        ),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  color: primary,
+                  size: 19,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: primary,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: .7,
+                      fontSize: 15,
+                    ),
                   ),
                 ),
-              ),
-              if (trailing != null)
-                trailing!,
-            ],
-          ),
-          const SizedBox(height: 16),
-          child,
-        ],
-      ),
-    );
-  }
+                if (trailing != null) trailing!,
+              ],
+            ),
+            const SizedBox(height: 16),
+            child,
+          ],
+        ),
+      );
 }
 
 class AttendanceDialog extends StatefulWidget {
@@ -1626,8 +1209,7 @@ class _AttendanceDialogState
   void initState() {
     super.initState();
 
-    status = widget.initial.status ==
-            DayStatus.none
+    status = widget.initial.status == DayStatus.none
         ? DayStatus.present
         : widget.initial.status;
 
@@ -1653,17 +1235,24 @@ class _AttendanceDialogState
 
   @override
   Widget build(BuildContext context) {
+    final bottom =
+        MediaQuery.of(context).viewInsets.bottom;
+
     return Dialog(
-      insetPadding:
-          const EdgeInsets.symmetric(
-        horizontal: 20,
+      insetPadding: const EdgeInsets.symmetric(
+        horizontal: 24,
         vertical: 24,
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(28),
       ),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(22),
+        padding: EdgeInsets.fromLTRB(
+          22,
+          20,
+          22,
+          20 + bottom,
+        ),
         child: Column(
           crossAxisAlignment:
               CrossAxisAlignment.start,
@@ -1674,8 +1263,8 @@ class _AttendanceDialogState
                   child: Text(
                     'Attendance Entry',
                     style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w600,
+                      color: textGrey,
+                      fontSize: 16,
                     ),
                   ),
                 ),
@@ -1690,7 +1279,7 @@ class _AttendanceDialogState
               formatDate(widget.date),
               style: const TextStyle(
                 color: primary,
-                fontSize: 18,
+                fontSize: 21,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1700,6 +1289,7 @@ class _AttendanceDialogState
               style: TextStyle(
                 color: textGrey,
                 fontWeight: FontWeight.w700,
+                letterSpacing: 1,
               ),
             ),
             const SizedBox(height: 10),
@@ -1711,117 +1301,142 @@ class _AttendanceDialogState
                   'PRESENT',
                   DayStatus.present,
                   status,
-                  () {
-                    setState(() {
-                      status =
-                          DayStatus.present;
-                    });
-                  },
+                  () => setState(
+                    () => status = DayStatus.present,
+                  ),
                 ),
                 StatusButton(
                   'HALF DAY',
                   DayStatus.half,
                   status,
-                  () {
-                    setState(() {
-                      status =
-                          DayStatus.half;
-                    });
-                  },
+                  () => setState(
+                    () => status = DayStatus.half,
+                  ),
                 ),
                 StatusButton(
                   'ABSENT',
                   DayStatus.absent,
                   status,
-                  () {
-                    setState(() {
-                      status =
-                          DayStatus.absent;
-                    });
-                  },
+                  () => setState(
+                    () => status = DayStatus.absent,
+                  ),
                 ),
                 StatusButton(
                   'HOLIDAY',
                   DayStatus.holiday,
                   status,
-                  () {
-                    setState(() {
-                      status =
-                          DayStatus.holiday;
-                    });
-                  },
+                  () => setState(
+                    () => status = DayStatus.holiday,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 20),
-            TextField(
+            const Text(
+              'NORMAL WORKING HOURS',
+              style: TextStyle(
+                color: textGrey,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+                        TextField(
               controller: hours,
               keyboardType:
                   const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration:
-                  const InputDecoration(
-                labelText: 'Working Hours',
+              decoration: const InputDecoration(
+                labelText: 'Hours',
                 prefixIcon:
                     Icon(Icons.access_time),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
+            const Text(
+              'OVERTIME (OT) HOURS',
+              style: TextStyle(
+                color: textGrey,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
             TextField(
               controller: ot,
               keyboardType:
                   const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration:
-                  const InputDecoration(
+              decoration: const InputDecoration(
                 labelText: 'OT Hours',
                 prefixIcon:
                     Icon(Icons.more_time),
+                helperText:
+                    'OT is shown in green on the calendar',
               ),
             ),
-            const SizedBox(height: 22),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () {
-                  final h =
-                      double.tryParse(
-                            hours.text,
-                          ) ??
-                          0;
-
-                  final o =
-                      double.tryParse(
-                            ot.text,
-                          ) ??
-                          0;
-
-                  Navigator.pop(
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () =>
+                      Navigator.pop(
                     context,
-                    Attendance(
-                      status: status,
-                      hours: h,
-                      ot: o,
+                    Attendance(),
+                  ),
+                  icon: const Icon(
+                    Icons.delete,
+                    color: absentRed,
+                  ),
+                  label: const Text(
+                    'Delete',
+                    style: TextStyle(
+                      color: absentRed,
                     ),
-                  );
-                },
-                icon: const Icon(
-                  Icons.check_circle,
-                ),
-                label: const Text(
-                  'Save Attendance',
-                ),
-                style:
-                    FilledButton.styleFrom(
-                  backgroundColor: primary,
-                  padding:
-                      const EdgeInsets.symmetric(
-                    vertical: 15,
                   ),
                 ),
-              ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: () {
+                    final h =
+                        double.tryParse(
+                              hours.text,
+                            ) ??
+                            0;
+
+                    final o =
+                        double.tryParse(
+                              ot.text,
+                            ) ??
+                            0;
+
+                    Navigator.pop(
+                      context,
+                      Attendance(
+                        status: status,
+                        hours: h,
+                        ot: o,
+                      ),
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.check_circle,
+                  ),
+                  label: const Text(
+                    'Save Attendance',
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: primary,
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1850,11 +1465,9 @@ class StatusButton extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius:
-          BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(
+        padding: const EdgeInsets.symmetric(
           horizontal: 13,
           vertical: 11,
         ),
@@ -1904,7 +1517,6 @@ class SettingsSheet extends StatefulWidget {
 class _SettingsSheetState
     extends State<SettingsSheet> {
   late String mode;
-
   late TextEditingController salary;
   late TextEditingController days;
   late TextEditingController hours;
@@ -1959,46 +1571,22 @@ class _SettingsSheetState
     daily.dispose();
     advance.dispose();
     deduction.dispose();
-
     super.dispose();
-  }
-
-  Widget field(
-    String label,
-    TextEditingController controller,
-    String suffix,
-  ) {
-    return Padding(
-      padding:
-          const EdgeInsets.only(bottom: 15),
-      child: TextField(
-        controller: controller,
-        keyboardType:
-            const TextInputType.numberWithOptions(
-          decimal: true,
-        ),
-        decoration: InputDecoration(
-          labelText: label,
-          suffixText: suffix,
-          filled: true,
-          fillColor:
-              const Color(0xFFFCFDFE),
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottom =
+        MediaQuery.of(context).viewInsets.bottom;
+
     return Container(
       height:
-          MediaQuery.of(context).size.height *
-              .92,
-      padding: const EdgeInsets.fromLTRB(
+          MediaQuery.of(context).size.height * .92,
+      padding: EdgeInsets.fromLTRB(
         20,
-        14,
+        12,
         20,
-        20,
+        20 + bottom,
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -2016,21 +1604,46 @@ class _SettingsSheetState
               child: Container(
                 width: 42,
                 height: 5,
-                decoration:
-                    BoxDecoration(
+                decoration: BoxDecoration(
                   color: border,
                   borderRadius:
                       BorderRadius.circular(5),
                 ),
               ),
             ),
-            const SizedBox(height: 18),
-            const Text(
-              'Salary & OT Configuration',
-              style: TextStyle(
-                fontSize: 23,
-                fontWeight: FontWeight.w600,
-              ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Salary & OT Configuration',
+                        style: TextStyle(
+                          fontSize: 23,
+                          fontWeight:
+                              FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'For ${monthName(widget.month)}',
+                        style: const TextStyle(
+                          color: primary,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () =>
+                      Navigator.pop(context),
+                  icon:
+                      const Icon(Icons.close),
+                ),
+              ],
             ),
             const SizedBox(height: 18),
             const Text(
@@ -2038,98 +1651,107 @@ class _SettingsSheetState
               style: TextStyle(
                 color: textGrey,
                 fontWeight: FontWeight.w700,
+                letterSpacing: 1,
               ),
             ),
             const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(
-                  child: modeButton(
-                    'Fixed',
-                    'fixed',
+                ModeButton(
+                  'Fixed Days',
+                  'fixed',
+                  'Monthly / 26 days',
+                  mode,
+                  () => setState(
+                    () => mode = 'fixed',
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: modeButton(
-                    'Month',
-                    'month',
+                ModeButton(
+                  'Month Days',
+                  'month',
+                  'Monthly / 30–31 days',
+                  mode,
+                  () => setState(
+                    () => mode = 'month',
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: modeButton(
-                    'Daily',
-                    'daily',
+                ModeButton(
+                  'Daily Wage',
+                  'daily',
+                  'Direct per day',
+                  mode,
+                  () => setState(
+                    () => mode = 'daily',
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 18),
-            if (mode != 'daily')
+            if (mode != 'daily') ...[
               field(
-                'Monthly Salary',
+                'MONTHLY SALARY (₹)',
                 salary,
-                '₹',
+                '₹ / Month',
               ),
-            if (mode == 'fixed')
-              field(
-                'Working Days',
-                days,
-                'Days',
-              ),
+              if (mode == 'fixed')
+                field(
+                  'STANDARD WORKING DAYS PER MONTH',
+                  days,
+                  'Days (default 26)',
+                ),
+            ],
             field(
-              'Normal Hours',
+              'NORMAL WORKING HOURS PER DAY',
               hours,
-              'Hours',
+              'Hours / Day',
             ),
             field(
-              'OT Rate',
+              'OVERTIME (OT) RATE PER HOUR (₹)',
               ot,
               '₹ / Hour',
             ),
             if (mode == 'daily')
               field(
-                'Daily Wage',
+                'DAILY WAGE (₹)',
                 daily,
                 '₹ / Day',
               ),
             field(
-              'Advance',
+              'OPTIONAL ADVANCE (₹)',
               advance,
-              '₹',
+              'Advance taken (subtracted from salary)',
             ),
             field(
-              'Deduction',
+              'OPTIONAL DEDUCTION (₹)',
               deduction,
-              '₹',
+              'Other deductions (subtracted from salary)',
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: FilledButton(
                 onPressed: () {
-                  final result = Settings(
+                  final s = Settings(
                     mode: mode,
                     monthlySalary:
-                        numValue(salary),
+                        numVal(salary),
                     workingDays:
-                        numValue(days, 26),
+                        numVal(days, 26),
                     normalHours:
-                        numValue(hours, 8),
+                        numVal(hours, 8),
                     otRate:
-                        numValue(ot),
+                        numVal(ot, 0),
                     dailyWage:
-                        numValue(daily),
+                        numVal(daily),
                     advance:
-                        numValue(advance),
+                        numVal(advance),
                     deduction:
-                        numValue(deduction),
+                        numVal(deduction),
                   );
 
                   Navigator.pop(
                     context,
-                    result,
+                    s,
                   );
                 },
                 style:
@@ -2140,9 +1762,8 @@ class _SettingsSheetState
                     vertical: 16,
                   ),
                 ),
-                child: const Text(
-                  'Save',
-                ),
+                child:
+                    const Text('Save'),
               ),
             ),
           ],
@@ -2151,45 +1772,120 @@ class _SettingsSheetState
     );
   }
 
-  Widget modeButton(
-    String title,
-    String value,
-  ) {
-    final active = mode == value;
-
-    return InkWell(
-      onTap: () {
-        setState(() {
-          mode = value;
-        });
-      },
-      child: Container(
+  Widget field(
+    String label,
+    TextEditingController c,
+    String suffix,
+  ) =>
+      Padding(
         padding:
-            const EdgeInsets.symmetric(
-          vertical: 14,
+            const EdgeInsets.only(bottom: 16),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: textGrey,
+                fontSize: 13,
+                fontWeight:
+                    FontWeight.w700,
+                letterSpacing: .7,
+              ),
+            ),
+            const SizedBox(height: 7),
+            TextField(
+              controller: c,
+              keyboardType:
+                  const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                prefixText:
+                    label.contains('₹')
+                        ? '₹ '
+                        : null,
+                suffixText: suffix,
+                filled: true,
+                fillColor:
+                    const Color(0xFFFCFDFE),
+              ),
+            ),
+          ],
         ),
-        decoration: BoxDecoration(
-          color: active
-              ? primaryLight
-              : Colors.white,
-          border: Border.all(
+      );
+}
+
+class ModeButton extends StatelessWidget {
+  final String title;
+  final String value;
+  final String sub;
+  final String selected;
+  final VoidCallback onTap;
+
+  const ModeButton(
+    this.title,
+    this.value,
+    this.sub,
+    this.selected,
+    this.onTap, {
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active =
+        value == selected;
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          height: 72,
+          padding:
+              const EdgeInsets.all(8),
+          decoration: BoxDecoration(
             color: active
-                ? primary
-                : border,
-            width: active ? 2 : 1,
+                ? primaryLight
+                : Colors.white,
+            border: Border.all(
+              color: active
+                  ? primary
+                  : Colors.transparent,
+              width: 2,
+            ),
+            borderRadius:
+                BorderRadius.circular(12),
           ),
-          borderRadius:
-              BorderRadius.circular(12),
-        ),
-        child: Text(
-          title,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: active
-                ? primary
-                : textDark,
-            fontWeight:
-                FontWeight.w700,
+          child: Column(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
+            children: [
+              Text(
+                title,
+                textAlign:
+                    TextAlign.center,
+                style: TextStyle(
+                  color: active
+                      ? primary
+                      : textDark,
+                  fontWeight:
+                      FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                sub,
+                textAlign:
+                    TextAlign.center,
+                style: const TextStyle(
+                  color: textGrey,
+                  fontSize: 10,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -2197,121 +1893,319 @@ class _SettingsSheetState
   }
 }
 
-Map<String, double> monthCounts(
-  DateTime month,
-  Map<String, Attendance> attendance,
-) {
-  double present = 0;
-  double absent = 0;
-  double half = 0;
-  double holiday = 0;
-  double hours = 0;
-  double ot = 0;
+class YearScreen extends StatelessWidget {
+  final int year;
+  final Map<String, Attendance> attendance;
+  final Future<void> Function(DateTime) onDayTap;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
 
-  final totalDays = DateTime(
-    month.year,
-    month.month + 1,
-    0,
-  ).day;
+  const YearScreen({
+    super.key,
+    required this.year,
+    required this.attendance,
+    required this.onDayTap,
+    required this.onPrev,
+    required this.onNext,
+  });
 
-  for (int day = 1;
-      day <= totalDays;
-      day++) {
-    final item = attendance[
-        '${month.year}-${month.month}-$day'];
-
-    if (item == null) {
-      continue;
-    }
-
-    if (item.status == DayStatus.present) {
-      present++;
-    }
-
-    if (item.status == DayStatus.absent) {
-      absent++;
-    }
-
-    if (item.status == DayStatus.half) {
-      half++;
-    }
-
-    if (item.status == DayStatus.holiday) {
-      holiday++;
-    }
-
-    hours += item.hours;
-    ot += item.ot;
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding:
+          const EdgeInsets.fromLTRB(
+        18,
+        22,
+        18,
+        24,
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Year Calendar',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight:
+                        FontWeight.w500,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onPrev,
+                icon: const Icon(
+                  Icons.chevron_left,
+                  size: 32,
+                ),
+              ),
+              Text(
+                '$year',
+                style: const TextStyle(
+                  fontSize: 21,
+                ),
+              ),
+              IconButton(
+                onPressed: onNext,
+                icon: const Icon(
+                  Icons.chevron_right,
+                  size: 32,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (int m = 1; m <= 12; m++) ...[
+            _YearMonth(
+              year: year,
+              month: m,
+              attendance: attendance,
+              onDayTap: onDayTap,
+            ),
+            const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
   }
-
-  return {
-    'present': present,
-    'absent': absent,
-    'half': half,
-    'holiday': holiday,
-    'hours': hours,
-    'ot': ot,
-  };
 }
 
-Color dayFill(DayStatus status) {
-  switch (status) {
+class _YearMonth extends StatelessWidget {
+  final int year;
+  final int month;
+  final Map<String, Attendance> attendance;
+  final Future<void> Function(DateTime) onDayTap;
+
+  const _YearMonth({
+    required this.year,
+    required this.month,
+    required this.attendance,
+    required this.onDayTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final first =
+        DateTime(year, month, 1);
+    final start =
+        first.weekday % 7;
+    final days =
+        DateTime(year, month + 1, 0).day;
+
+    return Container(
+      padding:
+          const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(18),
+        border: Border.all(
+          color: border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Text(
+            monthName(first),
+            style: const TextStyle(
+              color: primary,
+              fontSize: 17,
+              fontWeight:
+                  FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: const [
+              'S',
+              'M',
+              'T',
+              'W',
+              'T',
+              'F',
+              'S',
+            ]
+                .map(
+                  (e) => Expanded(
+                    child: Center(
+                      child: Text(
+                        e,
+                        style:
+                            TextStyle(
+                          color:
+                              textGrey,
+                          fontSize:
+                              10,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 5),
+          GridView.builder(
+            shrinkWrap: true,
+            physics:
+                const NeverScrollableScrollPhysics(),
+            itemCount:
+                start + days,
+            gridDelegate:
+                const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              childAspectRatio: 1.25,
+            ),
+            itemBuilder: (_, i) {
+              if (i < start) {
+                return const SizedBox();
+              }
+
+              final d = DateTime(
+                year,
+                month,
+                i - start + 1,
+              );
+
+              final a = attendance[
+                  '${d.year}-${d.month}-${d.day}'];
+
+              return InkWell(
+                onTap: () =>
+                    onDayTap(d),
+                child: Center(
+                  child: Text(
+                    '${d.day}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: a != null &&
+                              a.status !=
+                                  DayStatus.none
+                          ? FontWeight.w800
+                          : FontWeight.w400,
+                      color: a == null
+                          ? (d.weekday ==
+                                  7
+                              ? absentRed
+                              : textDark)
+                          : dayText(
+                              a.status,
+                            ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color dayFill(DayStatus s) {
+  switch (s) {
     case DayStatus.present:
       return const Color(0xFFEAF6FC);
-
     case DayStatus.absent:
       return const Color(0xFFFFEDEE);
-
     case DayStatus.half:
       return const Color(0xFFFFF5E5);
-
     case DayStatus.holiday:
       return const Color(0xFFF1F3F5);
-
     case DayStatus.none:
       return Colors.white;
   }
 }
 
-Color dayBorder(DayStatus status) {
-  switch (status) {
+Color dayBorder(DayStatus s) {
+  switch (s) {
     case DayStatus.present:
       return const Color(0xFF9DC8DF);
-
     case DayStatus.absent:
       return const Color(0xFFF1A5AA);
-
     case DayStatus.half:
       return const Color(0xFFE9B76D);
-
     case DayStatus.holiday:
       return border;
-
     case DayStatus.none:
       return border;
   }
 }
 
-Color dayText(DayStatus status) {
-  switch (status) {
+Color dayText(DayStatus s) {
+  switch (s) {
     case DayStatus.present:
       return primary;
-
     case DayStatus.absent:
       return absentRed;
-
     case DayStatus.half:
       return halfOrange;
-
     case DayStatus.holiday:
       return textGrey;
-
     case DayStatus.none:
       return textDark;
   }
 }
 
-String monthName(DateTime date) {
+Map<String, double> monthCounts(
+  DateTime month,
+  Map<String, Attendance> a,
+) {
+  double p = 0;
+  double ab = 0;
+  double h = 0;
+  double hol = 0;
+  double hrs = 0;
+  double ot = 0;
+
+  for (
+    int d = 1;
+    d <= DateTime(
+      month.year,
+      month.month + 1,
+      0,
+    ).day;
+    d++
+  ) {
+    final x =
+        a['${month.year}-${month.month}-$d'];
+
+    if (x == null) continue;
+
+    if (x.status == DayStatus.present) {
+      p++;
+    }
+
+    if (x.status == DayStatus.absent) {
+      ab++;
+    }
+
+    if (x.status == DayStatus.half) {
+      h++;
+    }
+
+    if (x.status == DayStatus.holiday) {
+      hol++;
+    }
+
+    hrs += x.hours;
+    ot += x.ot;
+  }
+
+  return {
+    'present': p,
+    'absent': ab,
+    'half': h,
+    'holiday': hol,
+    'hours': hrs,
+    'ot': ot,
+  };
+}
+
+String monthName(DateTime d) {
   const names = [
     'January',
     'February',
@@ -2327,11 +2221,11 @@ String monthName(DateTime date) {
     'December',
   ];
 
-  return '${names[date.month - 1]} ${date.year}';
+  return '${names[d.month - 1]} ${d.year}';
 }
 
-String formatDate(DateTime date) {
-  const weekdays = [
+String formatDate(DateTime d) {
+  const wd = [
     'Monday',
     'Tuesday',
     'Wednesday',
@@ -2341,7 +2235,7 @@ String formatDate(DateTime date) {
     'Sunday',
   ];
 
-  const months = [
+  const mo = [
     'January',
     'February',
     'March',
@@ -2356,29 +2250,26 @@ String formatDate(DateTime date) {
     'December',
   ];
 
-  return '${weekdays[date.weekday - 1]}, '
-      '${date.day} ${months[date.month - 1]} '
-      '${date.year}';
+  return '${wd[d.weekday - 1]}, ${d.day} ${mo[d.month - 1]} ${d.year}';
 }
 
-String fmt(double value) {
-  if (value == value.roundToDouble()) {
-    return value.toInt().toString();
-  }
+String fmt(double v) =>
+    v == v.roundToDouble()
+        ? v.toInt().toString()
+        : v.toStringAsFixed(1);
 
-  return value.toStringAsFixed(1);
-}
+String money(double v) => '₹${v.round()}';
 
-String money(double value) {
-  return '₹${value.round()}';
-}
-
-double numValue(
-  TextEditingController controller, [
+double numVal(
+  TextEditingController c, [
   double fallback = 0,
-]) {
-  return double.tryParse(
-        controller.text.trim(),
-      ) ??
-      fallback;
-}
+]) =>
+    double.tryParse(c.text.trim()) ??
+    fallback;
+
+InputDecoration _inputDecoration(
+  String label,
+) =>
+    InputDecoration(
+      labelText: label,
+    );
