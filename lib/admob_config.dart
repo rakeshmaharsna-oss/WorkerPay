@@ -1,15 +1,15 @@
-
+/// Worker Pay AdMob configuration.
+/// Replace these placeholders with your real IDs later.
 class AdMobConfig {
-  // Google AdMob App ID
-  static const String appId = 'YOUR_APP_ID';
+  AdMobConfig._();
 
-  // Banner Advertisement ID
-  static const String bannerId = 'YOUR_BANNER_ID';
-
-  // Interstitial Advertisement ID
-  static const String interstitialId =
-      'YOUR_INTERSTITIAL_ID';
-
-  // Testing Mode
   static const bool testMode = true;
+
+  static const String appId = 'YOUR_ADMOB_APP_ID';
+
+  static const String bannerAdUnitId =
+      'YOUR_BANNER_AD_UNIT_ID';
+
+  static const String interstitialAdUnitId =
+      'YOUR_INTERSTITIAL_AD_UNIT_ID';
 }
