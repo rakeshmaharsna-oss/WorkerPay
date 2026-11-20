@@ -1,44 +1,51 @@
-
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum DayStatus {
-  none,
-  present,
-  absent,
-  half,
-  holiday,
-  leave,
-}
+const Color primary = Color(0xFF005086);
+const Color primaryLight = Color(0xFFE8F4FB);
+const Color bg = Color(0xFFF2F8FD);
+const Color card = Colors.white;
+const Color textDark = Color(0xFF0B1722);
+const Color textGrey = Color(0xFF65717C);
+const Color border = Color(0xFFD6E0E8);
+const Color presentBlue = Color(0xFF005086);
+const Color absentRed = Color(0xFFDC2626);
+const Color halfOrange = Color(0xFFD97706);
+const Color otGreen = Color(0xFF16A34A);
+
+enum DayStatus { none, present, absent, half, holiday, leave }
 
 class Attendance {
   DayStatus status;
   double hours;
   double ot;
+  String note;
+  bool paidLeave;
 
   Attendance({
     this.status = DayStatus.none,
     this.hours = 0,
     this.ot = 0,
+    this.note = '',
+    this.paidLeave = false,
   });
 
   Map<String, dynamic> toJson() => {
-    'status': status.index,
-    'hours': hours,
-    'ot': ot,
-  };
+        'status': status.index,
+        'hours': hours,
+        'ot': ot,
+        'note': note,
+        'paidLeave': paidLeave,
+      };
 
-  factory Attendance.fromJson(Map<String, dynamic> json) {
-    final index = (json['status'] as num?)?.toInt() ?? 0;
-
-    return Attendance(
-      status: DayStatus.values[
-        index.clamp(0, DayStatus.values.length - 1)
-      ],
-      hours: (json['hours'] as num?)?.toDouble() ?? 0,
-      ot: (json['ot'] as num?)?.toDouble() ?? 0,
-    );
-  }
+  factory Attendance.fromJson(Map<String, dynamic> j) => Attendance(
+        status: DayStatus.values[(j['status'] ?? 0).clamp(0, 5)],
+        hours: (j['hours'] ?? 0).toDouble(),
+        ot: (j['ot'] ?? 0).toDouble(),
+        note: (j['note'] ?? '').toString(),
+        paidLeave: j['paidLeave'] == true,
+      );
 }
 
 class Settings {
@@ -63,68 +70,49 @@ class Settings {
   });
 
   Map<String, dynamic> toJson() => {
-    'mode': mode,
-    'monthlySalary': monthlySalary,
-    'workingDays': workingDays,
-    'normalHours': normalHours,
-    'otRate': otRate,
-    'dailyWage': dailyWage,
-    'advance': advance,
-    'deduction': deduction,
-  };
+        'mode': mode,
+        'monthlySalary': monthlySalary,
+        'workingDays': workingDays,
+        'normalHours': normalHours,
+        'otRate': otRate,
+        'dailyWage': dailyWage,
+        'advance': advance,
+        'deduction': deduction,
+      };
 
-  factory Settings.fromJson(Map<String, dynamic> json) {
-    return Settings(
-      mode: json['mode'] ?? 'fixed',
-      monthlySalary:
-          (json['monthlySalary'] as num?)?.toDouble() ?? 0,
-      workingDays:
-          (json['workingDays'] as num?)?.toDouble() ?? 26,
-      normalHours:
-          (json['normalHours'] as num?)?.toDouble() ?? 8,
-      otRate: (json['otRate'] as num?)?.toDouble() ?? 0,
-      dailyWage:
-          (json['dailyWage'] as num?)?.toDouble() ?? 0,
-      advance: (json['advance'] as num?)?.toDouble() ?? 0,
-      deduction:
-          (json['deduction'] as num?)?.toDouble() ?? 0,
-    );
-  }
+  factory Settings.fromJson(Map<String, dynamic> j) => Settings(
+        mode: j['mode'] ?? 'fixed',
+        monthlySalary: (j['monthlySalary'] ?? 0).toDouble(),
+        workingDays: (j['workingDays'] ?? 26).toDouble(),
+        normalHours: (j['normalHours'] ?? 8).toDouble(),
+        otRate: (j['otRate'] ?? 0).toDouble(),
+        dailyWage: (j['dailyWage'] ?? 0).toDouble(),
+        advance: (j['advance'] ?? 0).toDouble(),
+        deduction: (j['deduction'] ?? 0).toDouble(),
+      );
 }
 
 class Store {
-  static const String _att = 'workerpay_attendance_v3';
-  static const String _set = 'workerpay_settings_v3';
-
-  static late SharedPreferences _prefs;
-
-  static Future<void> initialize() async {
-    _prefs = await SharedPreferences.getInstance();
-  }
+  static const _att = 'workerpay_attendance_v3';
+  static const _set = 'workerpay_settings_v3';
 
   static Future<Map<String, Attendance>> loadAttendance() async {
-    final raw = _prefs.getString(_att);
-
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString(_att);
     if (raw == null) return {};
 
-    final decoded = jsonDecode(raw);
-
-    if (decoded is! Map) return {};
-
-    final data = Map<String, dynamic>.from(decoded);
-
-    return data.map((key, value) {
-      return MapEntry(
-        key,
-        Attendance.fromJson(
-          Map<String, dynamic>.from(value),
-        ),
-      );
-    });
+    final m = Map<String, dynamic>.from(jsonDecode(raw));
+    return m.map(
+      (k, v) => MapEntry(
+        k,
+        Attendance.fromJson(Map<String, dynamic>.from(v)),
+      ),
+    );
   }
 
   static Future<Settings> loadSettings() async {
-    final raw = _prefs.getString(_set);
+    final p = await SharedPreferences.getInstance();
+    final raw = p.getString(_set);
 
     if (raw == null) return Settings();
 
@@ -134,95 +122,176 @@ class Store {
   }
 
   static Future<void> saveAttendance(
-    Map<String, Attendance> attendance,
+    Map<String, Attendance> a,
   ) async {
-    await _prefs.setString(
+    final p = await SharedPreferences.getInstance();
+
+    await p.setString(
       _att,
       jsonEncode(
-        attendance.map(
-          (key, value) => MapEntry(key, value.toJson()),
-        ),
+        a.map((k, v) => MapEntry(k, v.toJson())),
       ),
     );
   }
 
-  static Future<void> saveSettings(Settings settings) async {
-    await _prefs.setString(
-      _set,
-      jsonEncode(settings.toJson()),
-    );
+  static Future<void> saveSettings(Settings s) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_set, jsonEncode(s.toJson()));
   }
 }
 
-String attendanceKey(DateTime date) {
-  return '${date.year}-${date.month}-${date.day}';
+Color dayFill(DayStatus s) {
+  switch (s) {
+    case DayStatus.present:
+      return const Color(0xFFEAF6FC);
+    case DayStatus.absent:
+      return const Color(0xFFFFEDEE);
+    case DayStatus.half:
+      return const Color(0xFFFFF5E5);
+    case DayStatus.holiday:
+      return const Color(0xFFF1F3F5);
+    case DayStatus.leave:
+      return const Color(0xFFFFF7CC);
+    case DayStatus.none:
+      return Colors.white;
+  }
 }
 
-double calculateWorkingDays(
-  Map<String, Attendance> attendance,
-  int year,
-  int month,
+Color dayBorder(DayStatus s) {
+  switch (s) {
+    case DayStatus.present:
+      return const Color(0xFF9DC8DF);
+    case DayStatus.absent:
+      return const Color(0xFFF1A5AA);
+    case DayStatus.half:
+      return const Color(0xFFE9B76D);
+    case DayStatus.holiday:
+      return border;
+    case DayStatus.leave:
+      return const Color(0xFFE8CF65);
+    case DayStatus.none:
+      return border;
+  }
+}
+
+Color dayText(DayStatus s) {
+  switch (s) {
+    case DayStatus.present:
+      return primary;
+    case DayStatus.absent:
+      return absentRed;
+    case DayStatus.half:
+      return halfOrange;
+    case DayStatus.holiday:
+      return textGrey;
+    case DayStatus.leave:
+      return const Color(0xFF9A7B00);
+    case DayStatus.none:
+      return textDark;
+  }
+}
+
+Map<String, double> monthCounts(
+  DateTime month,
+  Map<String, Attendance> a,
 ) {
-  double total = 0;
+  double p = 0,
+      ab = 0,
+      h = 0,
+      hol = 0,
+      leave = 0,
+      paidLeave = 0,
+      hrs = 0,
+      ot = 0;
 
-  for (final entry in attendance.entries) {
-    final parts = entry.key.split('-');
+  for (int d = 1;
+      d <= DateTime(month.year, month.month + 1, 0).day;
+      d++) {
+    final x = a['${month.year}-${month.month}-$d'];
 
-    if (parts.length != 3) continue;
+    if (x == null) continue;
 
-    if (int.tryParse(parts[0]) != year ||
-        int.tryParse(parts[1]) != month) {
-      continue;
+    if (x.status == DayStatus.present) p++;
+    if (x.status == DayStatus.absent) ab++;
+    if (x.status == DayStatus.half) h++;
+    if (x.status == DayStatus.holiday) hol++;
+    if (x.status == DayStatus.leave) leave++;
+
+    if (x.status == DayStatus.absent && x.paidLeave) {
+      paidLeave++;
     }
 
-    if (entry.value.status == DayStatus.present) {
-      total++;
-    } else if (entry.value.status == DayStatus.half) {
-      total += 0.5;
-    }
+    hrs += x.hours;
+    ot += x.ot;
   }
 
-  return total;
+  return {
+    'present': p,
+    'absent': ab,
+    'half': h,
+    'holiday': hol,
+    'leave': leave,
+    'paidLeave': paidLeave,
+    'hours': hrs,
+    'ot': ot,
+  };
 }
 
-double calculateOvertime(
-  Map<String, Attendance> attendance,
-  int year,
-  int month,
-) {
-  double total = 0;
+String monthName(DateTime d) {
+  const names = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+  ];
 
-  for (final entry in attendance.entries) {
-    final parts = entry.key.split('-');
-
-    if (parts.length != 3) continue;
-
-    if (int.tryParse(parts[0]) == year &&
-        int.tryParse(parts[1]) == month) {
-      total += entry.value.ot;
-    }
-  }
-
-  return total;
+  return '${names[d.month - 1]} ${d.year}';
 }
 
-double calculateSalary({
-  required double workingDays,
-  required Settings settings,
-  required double overtimeHours,
-}) {
-  final dailyRate = settings.mode == 'daily'
-      ? settings.dailyWage
-      : settings.monthlySalary /
-          (settings.workingDays > 0
-              ? settings.workingDays
-              : 26);
+String formatDate(DateTime d) {
+  const wd = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday'
+  ];
 
-  final basic = workingDays * dailyRate;
-  final overtime = overtimeHours * settings.otRate;
+  const mo = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+  ];
 
-  return basic +
-      overtime -
-      settings.advance -
-      settings.deduction;
+  return '${wd[d.weekday - 1]}, ${d.day} ${mo[d.month - 1]} ${d.year}';
 }
+
+String fmt(double v) =>
+    v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
+
+String money(double v) => '₹${v.round()}';
+
+double numVal(TextEditingController c, [double fallback = 0]) =>
+    double.tryParse(c.text.trim()) ?? fallback;
+
+InputDecoration _inputDecoration(String label) =>
+    InputDecoration(labelText: label);
